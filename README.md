@@ -160,6 +160,8 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 | HTTP 429 dari AI | Tunggu sebelum mengulang; periksa batas permintaan/kuota, termasuk batas model gratis. |
 | Respons HTML dari AI | URL yang dipakai bukan endpoint API. Gunakan penanda penyedia atau URL API dengan `#id-model`; URL halaman model OpenRouter otomatis dikenali. |
 | Izin AI ditolak | Klik **Cek Koneksi** kembali dan izinkan akses alamat penyedia. |
+| URL tab aktif tidak dapat dibaca (versi lama) | Muat ulang ekstensi ke versi 1.1.1 atau lebih baru. Buka halaman detail lowongan, tunggu selesai dimuat, lalu buka popup lewat ikon Lamaran Tracker di toolbar Chrome. |
+| Chrome tidak bisa membaca halaman lowongan | Tutup popup, pilih tab lowongan, lalu buka kembali melalui ikon ekstensi. Setelah reload ekstensi, refresh halaman lowongan juga. Popup yang dibuka sebagai halaman biasa/Inspect dapat tidak memperoleh izin tab aktif. |
 | Halaman tidak dapat diambil | Gunakan halaman http/https biasa. Halaman `chrome://`, Web Store, PDF viewer, dan halaman lain yang dilindungi Chrome tidak bisa diinjeksi. |
 | Halaman kosong | Tunggu detail lowongan dimuat; untuk hasil pencarian, buka/pilih lowongan dahulu. |
 | Beberapa kolom kosong | Halaman mungkin tidak menyediakan JSON-LD/metadata atau selector belum cocok. Jangan anggap data kosong sebagai data yang berhasil ditemukan. |
@@ -204,7 +206,7 @@ Pengambilan mencakup dokumen utama yang sudah tampil; tidak ada scroll otomatis,
 
 Jika popup ditutup saat menyimpan, pekerjaan yang sudah diterima tetap dijalankan background, tetapi hasil tidak ditampilkan ulang otomatis saat popup dibuka. Periksa spreadsheet sebelum klik simpan lagi. Penyelesaian tetap bergantung pada koneksi serta masa hidup service worker Chrome.
 
-Sebanyak 34 pengujian regresi lokal lulus. Pengujian memakai mock Chrome, API AI, dan Apps Script untuk memeriksa rute penyedia, format request/respons native, migrasi pengaturan, error HTTP/JSON/HTML, serta pengamanan data dan penerapan gaya spreadsheet. Sintaks seluruh file JavaScript dan `Code.gs`, serta manifest JSON, juga diperiksa. Deployment Google, izin Chrome yang nyata, API AI dengan kunci Anda, dan selector situs asli memerlukan pemeriksaan langsung setelah pemasangan.
+Sebanyak 37 pengujian regresi lokal lulus. Pengujian memakai mock Chrome, API AI, dan Apps Script untuk memeriksa rute penyedia, format request/respons native, migrasi pengaturan, error HTTP/JSON/HTML, metadata URL tab yang kosong, penolakan halaman terbatas/izin injeksi, serta pengamanan data dan penerapan gaya spreadsheet. Sintaks seluruh file JavaScript dan `Code.gs`, serta manifest JSON, juga diperiksa. Deployment Google, izin Chrome yang nyata, API AI dengan kunci Anda, dan selector situs asli memerlukan pemeriksaan langsung setelah pemasangan.
 
 Jika Node.js tersedia, pemeriksaan sintaks dan regresi dapat dijalankan dari folder proyek melalui PowerShell:
 

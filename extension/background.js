@@ -290,7 +290,9 @@ async function createAiData(page, settings) {
 
 function validatePageUrl(value) {
   let url;
-  try { url = new URL(value); } catch { throw new Error("URL tab aktif tidak dapat dibaca."); }
+  try { url = new URL(value); } catch {
+    throw new Error("Alamat halaman lowongan belum tersedia atau tidak valid. Tunggu halaman selesai dimuat, lalu tutup dan buka kembali ekstensi lewat ikon di toolbar Chrome.");
+  }
   const webStore = url.hostname === "chromewebstore.google.com" ||
     (url.hostname === "chrome.google.com" && /^\/webstore(?:\/|$)/.test(url.pathname));
   if (!["http:", "https:"].includes(url.protocol) || webStore) {
@@ -336,12 +338,17 @@ async function saveJob(tabId, mode) {
   if (mode === "ai" && !settings.aiVerified) throw new Error("Mode AI belum terverifikasi. Jalankan Cek Koneksi terlebih dahulu.");
   if (!Number.isInteger(tabId)) throw new Error("Tab aktif tidak ditemukan.");
   const tab = await chrome.tabs.get(tabId);
-  validatePageUrl(tab.url);
+  // URL adalah metadata opsional pada tabs.Tab. Jika tidak diberikan Chrome,
+  // coba injeksi dengan izin yang sudah ada dan validasi location.href hasilnya.
+  if (textValue(tab.url)) validatePageUrl(tab.url);
   let results;
   try {
     results = await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
   } catch (error) {
-    throw new Error(`Halaman ini tidak dapat diambil datanya. Pastikan halaman lowongan dapat diakses dan masih terbuka: ${error.message}`);
+    throw new Error("Chrome tidak bisa membaca halaman lowongan ini. Buka halaman detail lowongan http/https, " +
+      "tunggu selesai dimuat, lalu tutup dan buka kembali ekstensi lewat ikon Lamaran Tracker di toolbar Chrome. " +
+      "Jika ekstensi baru dimuat ulang, refresh halaman lowongan. Halaman internal Chrome dan Web Store tidak didukung. " +
+      `Detail Chrome: ${error.message}`);
   }
   const page = results?.[0]?.result;
   if (!page) throw new Error("Halaman tidak mengembalikan data lowongan.");

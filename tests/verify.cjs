@@ -191,6 +191,47 @@ test("valid AI output posts extracted fields with the actual platform and source
   assert.equal(env.calls[1].body.tipe_kerja, "Remote");
 });
 
+test("missing tab URL metadata can still save using the URL extracted from the page", async () => {
+  for (const url of [undefined, ""]) {
+    const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" }, async () => response({ ok: true, row: 2 }));
+    env.ctx.chrome.tabs.get = async () => ({ id: 1, url });
+    assert.equal((await env.ctx.saveJob(1, "manual")).ok, true);
+    assert.equal(env.calls.length, 1);
+    assert.equal(env.calls[0].body.link, page.url);
+    assert.equal(env.calls[0].body.platform, "Glints");
+  }
+});
+
+test("restricted URLs remain blocked before saving, including URLs returned by extraction", async () => {
+  for (const url of ["chrome://extensions/", "https://chromewebstore.google.com/detail/example"]) {
+    const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
+    let injected = false;
+    env.ctx.chrome.tabs.get = async () => ({ id: 1, url });
+    env.ctx.chrome.scripting.executeScript = async () => { injected = true; return [{ result: page }]; };
+    await assert.rejects(() => env.ctx.saveJob(1, "manual"), /tidak boleh/);
+    assert.equal(injected, false);
+    assert.equal(env.calls.length, 0);
+  }
+  const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
+  env.ctx.chrome.tabs.get = async () => ({ id: 1 });
+  env.ctx.chrome.scripting.executeScript = async () => [{ result: { ...page, url: "chrome://settings/" } }];
+  await assert.rejects(() => env.ctx.saveJob(1, "manual"), /tidak boleh/);
+  assert.equal(env.calls.length, 0);
+});
+
+test("missing injection permission gives recovery steps and cannot post a job", async () => {
+  const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
+  env.ctx.chrome.tabs.get = async () => ({ id: 1 });
+  env.ctx.chrome.scripting.executeScript = async () => { throw new Error("Missing host permission"); };
+  await assert.rejects(() => env.ctx.saveJob(1, "manual"), (error) => {
+    assert.match(error.message, /ikon Lamaran Tracker di toolbar/);
+    assert.match(error.message, /refresh halaman/);
+    assert.match(error.message, /Missing host permission/);
+    return true;
+  });
+  assert.equal(env.calls.length, 0);
+});
+
 function popup(initial) {
   const saved = storage(initial);
   const events = [];
