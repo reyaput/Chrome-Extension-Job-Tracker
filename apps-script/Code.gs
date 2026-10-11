@@ -91,9 +91,6 @@ function applyTrackerRows(sheet, firstRow, rowCount) {
   sheet.getRange(firstRow, 11, rowCount, 2).setHorizontalAlignment("right").setFontColor(TRACKER_STYLE.muted);
   sheet.getRange(firstRow, 13, rowCount, 1).setFontColor(TRACKER_STYLE.link);
   sheet.getRange(firstRow, 14, rowCount, 1).setFontColor(TRACKER_STYLE.muted).setVerticalAlignment("top");
-  // Tinggi tetap menjaga deskripsi panjang tidak mengubah tabel menjadi terlalu tinggi.
-  // Teks lengkap tetap tersimpan dan dapat dibaca saat sel dipilih/diedit.
-  sheet.setRowHeightsForced(firstRow, rowCount, 64);
 }
 
 function applyTrackerConditionalFormatting(sheet) {
@@ -220,8 +217,11 @@ function setupSheet() {
       if (values[10] === "" && formulas[10] === "") sheet.getRange(row, 11).setFormula(deadlineFormula(row));
       if (values[11] === "" && formulas[11] === "") sheet.getRange(row, 12).setFormula(waitingFormula(row));
     });
-    applyTrackerLayout(sheet, getLastDataRow(existing));
+    const lastDataRow = getLastDataRow(existing);
+    applyTrackerLayout(sheet, lastDataRow);
     SpreadsheetApp.flush();
+    // Ukur setelah wrapping dan lebar kolom diterapkan, termasuk baris versi lama.
+    if (lastDataRow >= 2) sheet.autoResizeRows(2, lastDataRow - 1);
     // Web app tidak memiliki konteks spreadsheet aktif; ID asal direkam oleh setup.
     PropertiesService.getScriptProperties().setProperty(SPREADSHEET_ID_PROPERTY, spreadsheet.getId());
   } finally {
@@ -312,6 +312,7 @@ function doPost(e) {
     extendTrackerTable(sheet, row);
     if (expanded) applyTrackerConditionalFormatting(sheet);
     SpreadsheetApp.flush();
+    sheet.autoResizeRows(row, 1);
     return jsonResponse({ ok: true, row: row });
   } catch (error) {
     return jsonResponse({ ok: false, error: error.message || String(error) });
@@ -329,9 +330,15 @@ function onEdit(e) {
   if (!e || !e.range) return;
   const range = e.range;
   const sheet = range.getSheet();
-  if (sheet.getName() !== SHEET_NAME || range.getColumn() > 5 || range.getLastColumn() < 5 || range.getLastRow() < 2) return;
+  if (sheet.getName() !== SHEET_NAME || range.getLastRow() < 2) return;
   const firstRow = Math.max(2, range.getRow());
   const rowCount = range.getLastRow() - firstRow + 1;
+  // Deskripsi yang diedit atau dipaste juga menyesuaikan tinggi baris.
+  if (range.getColumn() <= 14 && range.getLastColumn() >= 14) {
+    SpreadsheetApp.flush();
+    sheet.autoResizeRows(firstRow, rowCount);
+  }
+  if (range.getColumn() > 5 || range.getLastColumn() < 5) return;
   const statuses = sheet.getRange(firstRow, 5, rowCount, 1).getValues();
   const datesAndWaiting = sheet.getRange(firstRow, 9, rowCount, 4);
   const values = datesAndWaiting.getValues();

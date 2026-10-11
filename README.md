@@ -7,7 +7,7 @@ Tidak perlu npm, framework, build, atau bundler. Pasang folder `extension/` mela
 ## Jika sudah memasang versi lama
 
 1. Ganti seluruh kode pada editor Apps Script dengan isi `apps-script/Code.gs` terbaru, lalu simpan.
-2. Jalankan **setupSheet** kembali untuk menerapkan tampilan baru pada data yang sudah ada. Data dan rumus yang terisi tidak dihapus. Header harus tetap sama.
+2. Jalankan **setupSheet** kembali untuk menerapkan tampilan baru dan menyesuaikan tinggi baris dengan deskripsi pada data yang sudah ada. Data dan rumus yang terisi tidak dihapus. Header harus tetap sama.
 3. Pilih **Deploy > Manage deployments > Edit > New version > Deploy** agar baris berikutnya ikut mendapat tampilan baru. URL `/exec` tetap sama jika deployment yang sama diperbarui.
 4. Di `chrome://extensions`, klik **Reload / Muat ulang** pada Lamaran Tracker, lalu buka kembali popup.
 5. Pengaturan AI kini cukup **Kunci API** dan **Rute model**. URL web app dan kunci lama tetap disimpan. Rute lama akan dimigrasikan jika dapat dikenali; klik **Cek Koneksi** kembali.
@@ -143,7 +143,7 @@ Semua isian dan pilihan mode terakhir tersimpan di `chrome.storage.local`, bukan
 
 Status mendapat warna berbeda yang mengikuti perubahan nilainya; deadline dekat/terlewat diberi penanda warna. Gridlines disembunyikan sehingga area kosong tampak bersih. Kolom kosong setelah kolom terakhir yang berisi data (minimal sampai N) disembunyikan, **bukan dihapus**. Ke-14 kolom tracker tetap tersedia; kolom tambahan yang berisi data tidak disembunyikan oleh setup.
 
-Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawah data tidak ditampilkan. Baris baru otomatis memperoleh dropdown, format, warna tabel, dan rentang filter yang diperluas. Deskripsi membungkus teks pada baris setinggi 64 piksel supaya tabel tetap ringkas; teks lengkap tetap berada dalam sel dan bisa dibaca saat sel dipilih/diedit.
+Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawah data tidak ditampilkan. Baris baru otomatis memperoleh dropdown, format, warna tabel, dan rentang filter yang diperluas. Deskripsi memakai **Wrap / Bungkus teks**, dan tinggi baris otomatis menyesuaikan isinya setelah data disimpan. Deskripsi panjang mendapatkan baris lebih tinggi agar teks tampil penuh. Menjalankan `setupSheet()` kembali menyesuaikan baris lama; mengedit atau paste deskripsi di kolom N juga menghitung ulang tinggi baris terkait.
 
 ## 7. Mengatasi masalah pemasangan
 
@@ -196,7 +196,7 @@ Selector yang tidak ditemukan mengembalikan `null`. JSON-LD dan metadata tetap d
 7. Nama perusahaan pada cadangan terakhir memakai `og:site_name` apa adanya. Metadata situs dapat berisi nama platform; judul halaman juga dapat memuat nama situs. Ekstensi tidak menebak atau memisahkan teks tersebut.
 8. Penyedia langsung ditentukan dengan penanda `openai:`/`anthropic:`; rute `organisasi/model` tanpa penanda memakai OpenRouter. Penyedia lain memakai URL API dengan `#id-model` dan wajib kompatibel dengan Chat Completions/Bearer. Tidak ada deteksi penyedia dari isi kunci API.
 9. Cek koneksi memakai batas 64 token dan ekstraksi 2.048 token keluaran. OpenAI langsung memakai `max_completion_tokens`; Anthropic memakai `max_tokens` serta system prompt terpisah. Temperature tidak dikirim ke Anthropic dan keluarga reasoning OpenAI yang menolak pengaturan tersebut; penyedia kompatibel lain menerima `temperature: 0` saat ekstraksi.
-10. Tampilan baru memakai baris data setinggi 64 piksel agar deskripsi panjang tetap ringkas. Kolom kosong setelah N disembunyikan secara aman; kolom yang menyimpan data tetap dipertahankan. Aturan warna tracker diperbarui tanpa menumpuk duplikat.
+10. Tinggi baris data mengikuti isi sel melalui `autoResizeRows`, setelah wrapping dan lebar kolom diterapkan; tidak ada tinggi tetap 64 piksel. Kolom kosong setelah N disembunyikan secara aman; kolom yang menyimpan data tetap dipertahankan. Aturan warna tracker diperbarui tanpa menumpuk duplikat.
 
 ## Keterbatasan dan pemeriksaan
 

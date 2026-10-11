@@ -258,7 +258,7 @@ for (const key of ["NumberFormat", "DataValidation", "FontFamily", "FontSize", "
   Range.prototype[`set${key}`] = function (...values) { this.sheet.mutations++; return this.cells((cell) => { cell.style[key] = values.length === 1 ? values[0] : values; }); };
 }
 class Sheet {
-  constructor(rows = 100, cols = 26) { Object.assign(this, { rows, cols, entries: new Map(), bands: [], filter: null, rules: [], hidden: new Set(), widths: {}, heights: {}, mutations: 0 }); }
+  constructor(rows = 100, cols = 26) { Object.assign(this, { rows, cols, entries: new Map(), bands: [], filter: null, rules: [], hidden: new Set(), widths: {}, heights: {}, autoResizes: [], mutations: 0 }); }
   cell(r, c) { const key = `${r},${c}`; if (!this.entries.has(key)) this.entries.set(key, { value: "", formula: "", style: {} }); return this.entries.get(key); }
   getRange(...args) { return new Range(this, ...args); }
   getMaxRows() { return this.rows; } getMaxColumns() { return this.cols; }
@@ -268,7 +268,11 @@ class Sheet {
   getBandings() { return [...this.bands]; } getFilter() { return this.filter; }
   getConditionalFormatRules() { return this.rules; } setConditionalFormatRules(rules) { this.rules = rules; }
   insertRowsAfter(row, count) { this.rows += count; } insertColumnsAfter(col, count) { this.cols += count; }
-  setRowHeightsForced(row, count, height) { for (let r = row; r < row + count; r++) this.heights[r] = height; }
+  autoResizeRows(row, count) {
+    this.autoResizes.push({ row, count, descriptionWidth: this.widths[14], wrap: this.cell(row, 14).style.WrapStrategy,
+      descriptions: this.getRange(row, 14, count, 1).getValues() });
+    return this;
+  }
   setRowHeight(row, height) { this.heights[row] = height; } setColumnWidth(col, width) { this.widths[col] = width; }
   setFrozenRows(value) { this.frozenRows = value; } setFrozenColumns(value) { this.frozenCols = value; }
   setHiddenGridlines(value) { this.gridHidden = value; } setTabColor(value) { this.tabColor = value; }
@@ -341,6 +345,13 @@ test("repeated setup preserves data, custom formulas, frozen waiting days, and u
   assert.equal(sheet.rules.includes(custom), true);
   assert.equal(sheet.bands.length, 1);
   assert.equal(sheet.cell(2, 5).style.DataValidation.show, true);
+  const fit = sheet.autoResizes.at(-1);
+  assert.equal(fit.row, 2);
+  assert.equal(fit.count, 2);
+  assert.equal(fit.descriptionWidth, 360);
+  assert.equal(fit.wrap, "WRAP");
+  assert.equal(fit.descriptions[1][0], "long description ".repeat(300));
+  assert.equal(sheet.heights[1], 52);
 });
 
 test("mismatching headers stop setup before changing data or formatting", () => {
@@ -370,7 +381,11 @@ test("appended rows are literal, styled, filtered, and ignore phantom K/L formul
   assert.equal(sheet.cell(2, 10).value, "");
   assert.equal(sheet.cell(2, 7).value, "Remote");
   assert.equal(sheet.cell(2, 14).value, "full text ".repeat(500));
-  assert.equal(sheet.heights[3], 64);
+  assert.equal(sheet.autoResizes[0].descriptions[0][0], "full text ".repeat(500));
+  assert.equal(sheet.autoResizes[0].descriptionWidth, 360);
+  assert.equal(sheet.autoResizes[0].wrap, "WRAP");
+  assert.equal(sheet.autoResizes.at(-1).row, 3);
+  assert.equal(sheet.autoResizes.at(-1).count, 1);
   assert.equal(sheet.cell(3, 14).style.WrapStrategy, "WRAP");
   assert.equal(sheet.cell(3, 5).style.DataValidation.show, true);
   assert.equal(sheet.filter.getRange().getNumRows(), 3);
@@ -396,6 +411,11 @@ test("terminal status freezes waiting days and reopening restores the formula", 
   assert.equal(sheet.cell(2, 12).formula, "");
   assert.equal(typeof sheet.cell(2, 12).value, "number");
   const frozen = sheet.cell(2, 12).value;
+  sheet.getRange(2, 14).setValue("Updated description\n".repeat(30));
+  ctx.onEdit({ range: sheet.getRange(2, 14) });
+  assert.equal(sheet.autoResizes.at(-1).descriptions[0][0], "Updated description\n".repeat(30));
+  assert.equal(sheet.cell(2, 12).value, frozen);
+  assert.equal(sheet.cell(2, 12).formula, "");
   sheet.getRange(2, 5).setValue("Rejected"); ctx.onEdit({ range: sheet.getRange(2, 5) });
   assert.equal(sheet.cell(2, 12).value, frozen);
   sheet.getRange(2, 5).setValue("Applied"); ctx.onEdit({ range: sheet.getRange(2, 5) });
