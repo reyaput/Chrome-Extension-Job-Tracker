@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lamaran Tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Simpan data lowongan dari tab aktif ke Google Sheets dengan mode AI atau Manual.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [

@@ -14,6 +14,23 @@ const HEADERS = [
 const STATUS_OPTIONS = ["Applied", "Screening", "Interview HR", "Interview User", "Offer", "Rejected"];
 const WORK_TYPE_OPTIONS = ["On-site", "WFO", "Hybrid", "Remote", "WFH"];
 const MILLISECONDS_PER_DAY = 86400000;
+const TRACKER_STYLE = {
+  header: "#17324d", text: "#24364b", muted: "#62748b", stripe: "#f3f6fa", link: "#225ac7",
+  columnWidths: [114, 240, 175, 145, 155, 190, 105, 180, 114, 114, 128, 120, 200, 360]
+};
+const STATUS_STYLES = {
+  Applied: ["#e8f0ff", "#225ac7"],
+  Screening: ["#fff2cf", "#8a5a00"],
+  "Interview HR": ["#eee9ff", "#6541a5"],
+  "Interview User": ["#e1f2f7", "#146476"],
+  Offer: ["#dff3e8", "#176745"],
+  Rejected: ["#fde9e7", "#a63b32"]
+};
+const DEADLINE_STYLE_FORMULAS = [
+  '=AND(ISNUMBER($J2),$J2>=TODAY(),$J2-TODAY()<=3)',
+  '=AND(ISNUMBER($J2),$J2>=TODAY(),$J2-TODAY()<=7)',
+  '=AND(ISNUMBER($J2),$J2<TODAY(),$E2<>"Offer",$E2<>"Rejected")'
+];
 
 function isTerminalStatus(value) {
   return value === "Offer" || value === "Rejected";
@@ -43,21 +60,117 @@ function getHeaderState(sheet) {
   throw new Error('Baris 1 tab "' + SHEET_NAME + '" tidak cocok dengan 14 header yang diwajibkan. Tidak ada perubahan; periksa header atau gunakan spreadsheet kosong.');
 }
 
-function createStatusValidation() {
-  return SpreadsheetApp.newDataValidation().requireValueInList(STATUS_OPTIONS, true).setAllowInvalid(false).build();
+function createStatusValidation(showDropdown) {
+  return SpreadsheetApp.newDataValidation().requireValueInList(STATUS_OPTIONS, showDropdown !== false).setAllowInvalid(false).build();
 }
 
-function createWorkTypeValidation() {
-  return SpreadsheetApp.newDataValidation().requireValueInList(WORK_TYPE_OPTIONS, true).setAllowInvalid(false).build();
+function createWorkTypeValidation(showDropdown) {
+  return SpreadsheetApp.newDataValidation().requireValueInList(WORK_TYPE_OPTIONS, showDropdown !== false).setAllowInvalid(false).build();
 }
 
-function applyRowFormatting(sheet, firstRow, rowCount) {
+function applyRowFormatting(sheet, firstRow, rowCount, showDropdown) {
   [1, 9, 10].forEach(function (column) {
     sheet.getRange(firstRow, column, rowCount, 1).setNumberFormat("yyyy-mm-dd");
   });
   sheet.getRange(firstRow, 11, rowCount, 2).setNumberFormat("0");
-  sheet.getRange(firstRow, 5, rowCount, 1).setDataValidation(createStatusValidation());
-  sheet.getRange(firstRow, 7, rowCount, 1).setDataValidation(createWorkTypeValidation());
+  sheet.getRange(firstRow, 5, rowCount, 1).setDataValidation(createStatusValidation(showDropdown));
+  sheet.getRange(firstRow, 7, rowCount, 1).setDataValidation(createWorkTypeValidation(showDropdown));
+}
+
+function applyTrackerRows(sheet, firstRow, rowCount) {
+  const range = sheet.getRange(firstRow, 1, rowCount, HEADERS.length);
+  range.setFontFamily("Arial").setFontSize(10).setFontColor(TRACKER_STYLE.text).setFontWeight("normal")
+    .setVerticalAlignment("middle").setHorizontalAlignment("left").setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  [2, 3, 6, 8, 14].forEach(function (column) {
+    sheet.getRange(firstRow, column, rowCount, 1).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+  });
+  [1, 4, 5, 7, 9, 10].forEach(function (column) {
+    sheet.getRange(firstRow, column, rowCount, 1).setHorizontalAlignment("center");
+  });
+  sheet.getRange(firstRow, 5, rowCount, 1).setFontWeight("bold");
+  sheet.getRange(firstRow, 11, rowCount, 2).setHorizontalAlignment("right").setFontColor(TRACKER_STYLE.muted);
+  sheet.getRange(firstRow, 13, rowCount, 1).setFontColor(TRACKER_STYLE.link);
+  sheet.getRange(firstRow, 14, rowCount, 1).setFontColor(TRACKER_STYLE.muted).setVerticalAlignment("top");
+  // Tinggi tetap menjaga deskripsi panjang tidak mengubah tabel menjadi terlalu tinggi.
+  // Teks lengkap tetap tersimpan dan dapat dibaca saat sel dipilih/diedit.
+  sheet.setRowHeightsForced(firstRow, rowCount, 64);
+}
+
+function applyTrackerConditionalFormatting(sheet) {
+  const remaining = sheet.getConditionalFormatRules().filter(function (rule) {
+    const condition = rule.getBooleanCondition();
+    if (!condition) return true;
+    const values = condition.getCriteriaValues();
+    const ranges = rule.getRanges();
+    const statusRule = condition.getCriteriaType() === SpreadsheetApp.BooleanCriteria.TEXT_EQUAL_TO &&
+      STATUS_OPTIONS.indexOf(String(values[0])) !== -1 && ranges.length === 1 &&
+      ranges[0].getRow() === 2 && ranges[0].getColumn() === 5 && ranges[0].getNumColumns() === 1;
+    const deadlineRule = condition.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA &&
+      DEADLINE_STYLE_FORMULAS.indexOf(String(values[0])) !== -1;
+    // Aturan tracker diganti, bukan ditumpuk; aturan lain milik pengguna dipertahankan.
+    return !statusRule && !deadlineRule;
+  });
+  const dataRows = sheet.getMaxRows() - 1;
+  const rules = STATUS_OPTIONS.map(function (status) {
+    const colors = STATUS_STYLES[status];
+    return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(status).setBackground(colors[0]).setFontColor(colors[1])
+      .setRanges([sheet.getRange(2, 5, dataRows, 1)]).build();
+  });
+  DEADLINE_STYLE_FORMULAS.forEach(function (formula, index) {
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula)
+      .setBackground(index === 1 ? "#fff2cf" : "#fde9e7").setFontColor(index === 1 ? "#8a5a00" : "#a63b32")
+      .setRanges([sheet.getRange(2, index === 2 ? 10 : 11, dataRows, 1)]).build());
+  });
+  sheet.setConditionalFormatRules(rules.concat(remaining));
+}
+
+function extendTrackerTable(sheet, lastDataRow) {
+  const tableRange = sheet.getRange(1, 1, Math.max(2, lastDataRow), HEADERS.length);
+  const banding = sheet.getBandings().find(function (item) {
+    const range = item.getRange();
+    return range.getRow() === 1 && range.getColumn() === 1 && range.getNumColumns() === HEADERS.length;
+  });
+  const trackerBanding = banding ? banding.setRange(tableRange)
+    : tableRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+  trackerBanding.setHeaderRowColor(TRACKER_STYLE.header).setFirstRowColor("#ffffff").setSecondRowColor(TRACKER_STYLE.stripe);
+
+  const filter = sheet.getFilter();
+  if (!filter) { tableRange.createFilter(); return; }
+  const filterRange = filter.getRange();
+  if (filterRange.getRow() !== 1 || filterRange.getColumn() !== 1 || filterRange.getNumColumns() !== HEADERS.length ||
+      filterRange.getNumRows() >= tableRange.getNumRows()) return;
+  const criteria = [];
+  for (let column = 1; column <= HEADERS.length; column += 1) criteria.push(filter.getColumnFilterCriteria(column));
+  filter.remove();
+  const updated = tableRange.createFilter();
+  criteria.forEach(function (value, index) { if (value) updated.setColumnFilterCriteria(index + 1, value); });
+}
+
+function applyTrackerLayout(sheet, lastDataRow) {
+  const core = sheet.getRange(1, 1, sheet.getMaxRows(), HEADERS.length);
+  core.setBackground("#ffffff").setBorder(false, false, false, false, false, false)
+    .setFontFamily("Arial").setFontSize(10).setFontColor(TRACKER_STYLE.text);
+  sheet.getBandings().forEach(function (banding) {
+    if (banding.getRange().getColumn() <= HEADERS.length) banding.remove();
+  });
+  applyTrackerRows(sheet, 2, Math.max(1, lastDataRow - 1));
+  extendTrackerTable(sheet, lastDataRow);
+  sheet.getRange(1, 1, 1, HEADERS.length).setBackground(TRACKER_STYLE.header).setFontColor("#ffffff")
+    .setFontWeight("bold").setHorizontalAlignment("center").setVerticalAlignment("middle")
+    .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP)
+    .setBorder(null, null, true, null, true, null, "#ffffff", SpreadsheetApp.BorderStyle.SOLID);
+  sheet.setRowHeight(1, 52);
+  TRACKER_STYLE.columnWidths.forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(3);
+  sheet.setHiddenGridlines(true);
+  sheet.setTabColor(TRACKER_STYLE.header);
+  sheet.showColumns(1, HEADERS.length);
+  // Hanya kolom kosong setelah data terakhir yang disembunyikan; tidak ada penghapusan.
+  const firstUnusedColumn = Math.max(HEADERS.length, sheet.getLastColumn()) + 1;
+  if (firstUnusedColumn <= sheet.getMaxColumns()) sheet.hideColumns(firstUnusedColumn, sheet.getMaxColumns() - firstUnusedColumn + 1);
+  if (lastDataRow >= 2) applyRowFormatting(sheet, 2, lastDataRow - 1, true);
+  applyTrackerConditionalFormatting(sheet);
 }
 
 function hasRowData(values, formulas) {
@@ -72,6 +185,13 @@ function getExistingRows(sheet) {
   if (lastRow < 2) return { values: [], formulas: [] };
   const range = sheet.getRange(2, 1, lastRow - 1, Math.max(HEADERS.length, sheet.getLastColumn()));
   return { values: range.getValues(), formulas: range.getFormulas() };
+}
+
+function getLastDataRow(existing) {
+  for (let index = existing.values.length - 1; index >= 0; index -= 1) {
+    if (hasRowData(existing.values[index], existing.formulas[index])) return index + 2;
+  }
+  return 1;
 }
 
 function setupSheet() {
@@ -89,9 +209,8 @@ function setupSheet() {
     }
     if (sheet.getMaxRows() < 2) sheet.insertRowsAfter(sheet.getMaxRows(), 2 - sheet.getMaxRows());
     if (headerState === "empty") sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-    sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight("bold");
-    sheet.setFrozenRows(1);
-    applyRowFormatting(sheet, 2, sheet.getMaxRows() - 1);
+    // Validation tetap berlaku pada semua baris; baris kosong tidak menampilkan panah.
+    applyRowFormatting(sheet, 2, sheet.getMaxRows() - 1, false);
 
     const existing = getExistingRows(sheet);
     existing.values.forEach(function (values, index) {
@@ -101,6 +220,7 @@ function setupSheet() {
       if (values[10] === "" && formulas[10] === "") sheet.getRange(row, 11).setFormula(deadlineFormula(row));
       if (values[11] === "" && formulas[11] === "") sheet.getRange(row, 12).setFormula(waitingFormula(row));
     });
+    applyTrackerLayout(sheet, getLastDataRow(existing));
     SpreadsheetApp.flush();
     // Web app tidak memiliki konteks spreadsheet aktif; ID asal direkam oleh setup.
     PropertiesService.getScriptProperties().setProperty(SPREADSHEET_ID_PROPERTY, spreadsheet.getId());
@@ -172,15 +292,9 @@ function doPost(e) {
     if (!sheet) throw new Error('Tab "' + SHEET_NAME + '" tidak ada. Jalankan setupSheet dari editor Apps Script.');
     if (getHeaderState(sheet) !== "matching") throw new Error("Header belum disiapkan. Jalankan setupSheet dari editor Apps Script.");
     const existing = getExistingRows(sheet);
-    let lastDataRow = 1;
-    for (let index = existing.values.length - 1; index >= 0; index -= 1) {
-      if (hasRowData(existing.values[index], existing.formulas[index])) {
-        lastDataRow = index + 2;
-        break;
-      }
-    }
-    const row = lastDataRow + 1;
-    if (row > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), row - sheet.getMaxRows());
+    const row = getLastDataRow(existing) + 1;
+    const expanded = row > sheet.getMaxRows();
+    if (expanded) sheet.insertRowsAfter(sheet.getMaxRows(), row - sheet.getMaxRows());
     const timeZone = spreadsheet.getSpreadsheetTimeZone();
     const today = getToday(timeZone);
     const deadline = parseDateOnly(data.deadline, timeZone);
@@ -194,6 +308,9 @@ function doPost(e) {
     writePlainText(sheet, row, 13, [data.link, data.deskripsi]);
     sheet.getRange(row, 11, 1, 2).setFormulas([[deadlineFormula(row), waitingFormula(row)]]);
     applyRowFormatting(sheet, row, 1);
+    applyTrackerRows(sheet, row, 1);
+    extendTrackerTable(sheet, row);
+    if (expanded) applyTrackerConditionalFormatting(sheet);
     SpreadsheetApp.flush();
     return jsonResponse({ ok: true, row: row });
   } catch (error) {

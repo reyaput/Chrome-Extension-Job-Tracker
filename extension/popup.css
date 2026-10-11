@@ -31,8 +31,12 @@ input:last-child { margin-bottom: 0; }
 input::placeholder { color: #66788b; font-size: 12px; }
 input:disabled { background: #f1f4f8; }
 .hint { font-size: 12px; }
-#base-url { margin-bottom: 5px; }
-#base-url + .hint { margin-bottom: 12px; }
+#model-route { margin-bottom: 5px; }
+#route-info { margin-bottom: 10px; overflow-wrap: anywhere; }
+.route-help { margin-bottom: 14px; color: #526578; font-size: 12px; }
+.route-help summary { cursor: pointer; color: #194baf; }
+.route-help p { margin-top: 7px; }
+.route-help code { overflow-wrap: anywhere; font-size: 11px; }
 button {
   min-height: 37px;
   padding: 8px 12px;
@@ -53,5 +57,5 @@ button:focus-visible, input:focus-visible { outline: 3px solid #9cc5ff; outline-
 .secondary:hover:enabled { background: #e1ebff; }
 .status { margin-top: 10px; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
 .status:empty { display: none; }
-.status[data-kind="error"] { color: #b42318; }
-.status[data-kind="success"] { color: #167342; }
+.status[data-kind="error"] { padding: 10px; border: 1px solid #f1c9c5; border-radius: 7px; color: #a6231a; background: #fff3f1; }
+.status[data-kind="success"] { padding: 10px; border: 1px solid #bfe3ce; border-radius: 7px; color: #167342; background: #f0faf4; }

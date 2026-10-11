@@ -1,10 +1,14 @@
 "use strict";
 
+importScripts("ai-route.js");
+
 const MAX_MANUAL_DESCRIPTION_CHARS = 1500;
 const MAX_AI_INPUT_CHARS = 20000;
+const MAX_AI_OUTPUT_TOKENS = 2048;
+const MAX_ERROR_DETAIL_CHARS = 600;
 const REQUEST_TIMEOUT_MS = 25000;
 const DEFAULT_SETTINGS = {
-  apiKey: "", baseUrl: "", model: "", appsScriptUrl: "", mode: "manual", aiVerified: false
+  apiKey: "", modelRoute: "", appsScriptUrl: "", mode: "manual", aiVerified: false
 };
 
 function textValue(value) {
@@ -89,20 +93,71 @@ function createManualData(page) {
   };
 }
 
-function getChatUrl(settings) {
-  if (!textValue(settings.apiKey) || !textValue(settings.baseUrl) || !textValue(settings.model)) {
-    throw new Error("Isi Kunci API, URL dasar API, dan Nama model terlebih dahulu.");
+function createChatRequest(route, apiKey, payload) {
+  const tokenLimit = payload.max_tokens || MAX_AI_OUTPUT_TOKENS;
+  if (route.provider === "anthropic") {
+    const system = payload.messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
+    return {
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: {
+        model: route.model,
+        max_tokens: tokenLimit,
+        messages: payload.messages.filter((message) => message.role !== "system"),
+        ...(system ? { system } : {})
+        // Temperature tidak dikirim: model Anthropic terbaru menolaknya.
+      }
+    };
   }
-  let url;
-  try {
-    url = new URL(settings.baseUrl.trim());
-  } catch {
-    throw new Error("URL dasar API tidak valid. Gunakan URL http:// atau https://.");
+  const reasoningModel = route.provider === "openai" && /^(?:o[1-9]|gpt-[5-9])(?:[-.]|$)/.test(route.model);
+  return {
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: {
+      model: route.model,
+      messages: payload.messages,
+      ...(route.provider === "openai" ? { max_completion_tokens: tokenLimit } : { max_tokens: tokenLimit }),
+      ...(payload.temperature !== undefined && !reasoningModel ? { temperature: payload.temperature } : {})
+    }
+  };
+}
+
+function formatAiError(response, result, body, route, apiKey) {
+  const apiError = result?.error || result?.choices?.[0]?.error;
+  const code = Number(apiError?.code) || response.status;
+  const isHtml = /<(?:!doctype|html|head|body)\b/i.test(body);
+  const hints = {
+    400: "Permintaan ditolak. Periksa ID model dan parameter yang didukung penyedia.",
+    401: `Kunci API tidak valid atau tidak aktif. Gunakan kunci dari ${route.name}.`,
+    402: "Saldo atau kuota akun tidak mencukupi. Periksa akun penyedia.",
+    403: "Akses ditolak. Periksa izin kunci, akses model, dan kebijakan akun.",
+    404: "Rute model atau endpoint tidak ditemukan. Periksa ID model lengkap dan ketersediaannya di penyedia ini.",
+    408: "Penyedia kehabisan waktu saat memproses permintaan. Coba kembali setelah beberapa saat.",
+    429: "Batas permintaan atau kuota tercapai. Tunggu, lalu periksa batas akun penyedia.",
+    529: "Penyedia sedang penuh. Coba kembali setelah beberapa saat."
+  };
+  const hint = isHtml ? "Server mengembalikan halaman HTML, bukan respons API. Periksa alamat API pada rute; URL halaman situs bukan endpoint API."
+    : hints[code] || (code >= 500 ? "Layanan AI sedang bermasalah atau tidak tersedia. Coba kembali setelah beberapa saat."
+      : "Respons API tidak sesuai format yang diperlukan ekstensi.");
+  let detail = textValue(apiError?.message) || textValue(result?.message);
+  const raw = apiError?.metadata?.raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      const upstream = textValue(parsed?.error?.message) || textValue(parsed?.message);
+      if (upstream && upstream !== detail) detail = [detail, upstream].filter(Boolean).join(" — ");
+    } catch {
+      if (!detail && !/<[a-z!]/i.test(raw)) detail = raw;
+    }
   }
-  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error("URL dasar API harus berupa http:// atau https:// tanpa kredensial, parameter, atau fragmen.");
-  }
-  return `${settings.baseUrl.trim().replace(/\/+$/, "")}/chat/completions`;
+  if (!detail && !isHtml && !result) detail = cleanText(body);
+  if (apiKey) detail = detail.split(apiKey).join("[kunci disembunyikan]");
+  detail = detail.slice(0, MAX_ERROR_DETAIL_CHARS);
+  return `${route.name} · HTTP ${response.status}${code !== response.status ? ` · kode ${code}` : ""}\n${hint}\nRute: ${route.model}` +
+    (detail ? `\nPesan penyedia: ${detail}` : "");
 }
 
 async function fetchWithTimeout(url, options, target) {
@@ -119,23 +174,28 @@ async function fetchWithTimeout(url, options, target) {
 }
 
 async function requestChat(settings, payload) {
-  const { response, body } = await fetchWithTimeout(getChatUrl(settings), {
+  if (!textValue(settings.apiKey)) throw new Error("Isi Kunci API milik penyedia pada rute yang dipilih.");
+  const route = AiRoutes.resolve(settings.modelRoute);
+  const request = createChatRequest(route, settings.apiKey.trim(), payload);
+  const { response, body } = await fetchWithTimeout(route.endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey.trim()}` },
-    body: JSON.stringify({ model: settings.model.trim(), ...payload })
-  }, "penyedia AI");
-  if (response.status !== 200) {
-    throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}\n${body}`);
-  }
+    headers: request.headers,
+    body: JSON.stringify(request.body)
+  }, route.name);
   let result;
-  try {
-    result = JSON.parse(body);
-  } catch {
-    throw new Error(`HTTP 200: respons penyedia AI bukan JSON.\n${body}`);
+  try { result = JSON.parse(body); } catch { result = null; }
+  if (response.status !== 200 || !result || result.error || result.choices?.[0]?.error) {
+    throw new Error(formatAiError(response, result, body, route, settings.apiKey.trim()));
+  }
+  if (route.provider === "anthropic") {
+    if (!Array.isArray(result.content) || result.type !== "message") {
+      throw new Error(`${route.name} · HTTP 200\nRespons bukan pesan Anthropic yang valid. Periksa endpoint dan ID model.`);
+    }
+    return { role: "assistant", content: result.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") };
   }
   const message = result?.choices?.[0]?.message;
   if (!message || typeof message !== "object" || Array.isArray(message)) {
-    throw new Error(`HTTP 200: respons tidak berisi choices[0].message.\n${body}`);
+    throw new Error(`${route.name} · HTTP 200\nRespons tidak berisi choices[0].message. Periksa bahwa endpoint mendukung Chat Completions.`);
   }
   return message;
 }
@@ -145,14 +205,15 @@ async function checkAiConnection() {
   await chrome.storage.local.set({ aiVerified: false, mode: "manual" });
   await requestChat(settings, {
     messages: [{ role: "user", content: "Balas singkat: OK." }],
-    max_tokens: 8
+    max_tokens: 64
   });
   const current = await chrome.storage.local.get(DEFAULT_SETTINGS);
-  if (["apiKey", "baseUrl", "model"].some((key) => current[key] !== settings[key])) {
+  if (["apiKey", "modelRoute"].some((key) => current[key] !== settings[key])) {
     throw new Error("Pengaturan AI berubah saat pemeriksaan. Jalankan Cek Koneksi kembali.");
   }
   await chrome.storage.local.set({ aiVerified: true });
-  return { ok: true };
+  const route = AiRoutes.resolve(settings.modelRoute);
+  return { ok: true, provider: route.name, model: route.model };
 }
 
 function parseFirstJsonObject(content) {
@@ -212,6 +273,9 @@ async function createAiData(page, settings) {
       }
     ]
   });
+  if (!textValue(message.content)) {
+    throw new Error("AI mengembalikan jawaban kosong. Model mungkin memakai seluruh batas token untuk penalaran. Pilih rute model lain; data tidak disimpan.");
+  }
   const data = parseFirstJsonObject(message.content);
   return {
     nama_pekerjaan: textValue(data.nama_pekerjaan),

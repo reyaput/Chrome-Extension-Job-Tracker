@@ -2,8 +2,7 @@
 
 const DEFAULT_SETTINGS = {
   apiKey: "",
-  baseUrl: "",
-  model: "",
+  modelRoute: "",
   appsScriptUrl: "",
   mode: "manual",
   aiVerified: false
@@ -11,8 +10,8 @@ const DEFAULT_SETTINGS = {
 
 const elements = {
   apiKey: document.getElementById("api-key"),
-  baseUrl: document.getElementById("base-url"),
-  model: document.getElementById("model"),
+  modelRoute: document.getElementById("model-route"),
+  routeInfo: document.getElementById("route-info"),
   appsScriptUrl: document.getElementById("apps-script-url"),
   aiMode: document.getElementById("ai-mode"),
   manualMode: document.getElementById("manual-mode"),
@@ -35,7 +34,7 @@ function showStatus(element, message, kind = "") {
 
 function renderControls() {
   const disabled = !ready || busy;
-  for (const key of ["apiKey", "baseUrl", "model", "appsScriptUrl"]) {
+  for (const key of ["apiKey", "modelRoute", "appsScriptUrl"]) {
     elements[key].disabled = disabled;
   }
   elements.aiMode.disabled = disabled || !settings.aiVerified;
@@ -62,17 +61,16 @@ function persistSettings(patch) {
 
 function updateAiSettings() {
   settings.apiKey = elements.apiKey.value;
-  settings.baseUrl = elements.baseUrl.value;
-  settings.model = elements.model.value;
+  settings.modelRoute = elements.modelRoute.value;
   settings.aiVerified = false;
   settings.mode = "manual";
   showStatus(elements.connectionStatus, "Pengaturan berubah. Jalankan Cek Koneksi kembali.");
   showStatus(elements.saveStatus, "");
   renderControls();
+  renderRouteInfo();
   void persistSettings({
     apiKey: settings.apiKey,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
+    modelRoute: settings.modelRoute,
     aiVerified: false,
     mode: "manual"
   }).catch(() => {});
@@ -85,29 +83,22 @@ function selectMode(mode) {
   void persistSettings({ mode }).catch(() => {});
 }
 
-function getAiOrigin() {
-  if (!settings.apiKey.trim() || !settings.baseUrl.trim() || !settings.model.trim()) {
-    throw new Error("Isi Kunci API, URL dasar API, dan Nama model terlebih dahulu.");
-  }
-  let url;
+function renderRouteInfo() {
   try {
-    url = new URL(settings.baseUrl.trim());
+    const route = AiRoutes.resolve(settings.modelRoute);
+    elements.routeInfo.textContent = `Tujuan: ${route.name} · ${route.model}`;
   } catch {
-    throw new Error("URL dasar API tidak valid. Gunakan URL http:// atau https://.");
+    elements.routeInfo.textContent = "Pilih penyedia lewat rute. Tidak perlu mengisi URL dasar atau nama model terpisah.";
   }
-  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error("URL dasar API harus berupa http:// atau https:// tanpa kredensial, parameter, atau fragmen.");
-  }
-  // Pola izin Chrome memakai hostname; izin berlaku untuk port pada hostname ini.
-  return `${url.protocol}//${url.hostname}/*`;
 }
 
 async function checkConnection() {
   if (!ready || busy) return;
   try {
-    const origin = getAiOrigin();
+    if (!settings.apiKey.trim()) throw new Error("Isi Kunci API milik penyedia pada rute yang dipilih.");
+    const route = AiRoutes.resolve(settings.modelRoute);
     // Permintaan izin dipanggil langsung dari klik, sebelum penantian lainnya.
-    const permissionRequest = chrome.permissions.request({ origins: [origin] });
+    const permissionRequest = chrome.permissions.request({ origins: [route.permissionOrigin] });
     busy = true;
     settings.aiVerified = false;
     settings.mode = "manual";
@@ -121,7 +112,7 @@ async function checkConnection() {
     const result = await chrome.runtime.sendMessage({ type: "CHECK_AI" });
     if (!result || !result.ok) throw new Error(result?.error || "Pemeriksaan koneksi tidak mendapat respons.");
     settings.aiVerified = true;
-    showStatus(elements.connectionStatus, "Koneksi berhasil. Mode AI sudah dapat dipilih.", "success");
+    showStatus(elements.connectionStatus, `Koneksi berhasil ke ${result.provider || route.name}. Mode AI sudah dapat dipilih.`, "success");
   } catch (error) {
     settings.aiVerified = false;
     settings.mode = "manual";
@@ -160,23 +151,30 @@ async function saveJob() {
 
 async function initialize() {
   try {
-    settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
+    const stored = await chrome.storage.local.get(null);
+    const migrated = typeof stored.modelRoute !== "string";
+    settings = { ...DEFAULT_SETTINGS, ...stored, modelRoute: AiRoutes.migrateLegacySettings(stored) };
+    if (migrated) settings.aiVerified = false;
     if (settings.mode !== "ai" || !settings.aiVerified) settings.mode = "manual";
-    for (const key of ["apiKey", "baseUrl", "model", "appsScriptUrl"]) {
+    for (const key of ["apiKey", "modelRoute", "appsScriptUrl"]) {
       elements[key].value = settings[key];
     }
-    await persistSettings({ mode: settings.mode });
+    await persistSettings({ modelRoute: settings.modelRoute, aiVerified: settings.aiVerified, mode: settings.mode });
+    await chrome.storage.local.remove(["baseUrl", "model"]);
     ready = true;
     if (settings.aiVerified) {
       showStatus(elements.connectionStatus, "Koneksi sudah terverifikasi untuk pengaturan ini.", "success");
+    } else if (migrated && settings.modelRoute) {
+      showStatus(elements.connectionStatus, "Pengaturan lama dipindahkan ke Rute model. Klik Cek Koneksi untuk memverifikasi kembali.");
     }
+    renderRouteInfo();
     renderControls();
   } catch (error) {
     showStatus(elements.saveStatus, `Pengaturan gagal dimuat: ${error.message}`, "error");
   }
 }
 
-for (const key of ["apiKey", "baseUrl", "model"]) elements[key].addEventListener("input", updateAiSettings);
+for (const key of ["apiKey", "modelRoute"]) elements[key].addEventListener("input", updateAiSettings);
 elements.appsScriptUrl.addEventListener("input", () => {
   settings.appsScriptUrl = elements.appsScriptUrl.value;
   showStatus(elements.saveStatus, "");
