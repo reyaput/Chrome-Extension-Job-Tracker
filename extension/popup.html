@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lamaran Tracker</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Lamaran Tracker</h1>
+        <p>Simpan lowongan yang sedang dibuka ke Google Sheets.</p>
+      </header>
+
+      <section aria-labelledby="mode-heading">
+        <h2 id="mode-heading">Mode pengambilan</h2>
+        <div class="mode-toggle" role="group" aria-label="Mode pengambilan data">
+          <button id="ai-mode" type="button" aria-pressed="false" aria-describedby="mode-help" disabled>AI</button>
+          <button id="manual-mode" type="button" aria-pressed="true" disabled>Manual</button>
+        </div>
+        <p id="mode-help" class="hint">Mode AI terkunci sampai Cek Koneksi berhasil. Manual mengambil data tanpa AI.</p>
+      </section>
+
+      <section aria-labelledby="ai-heading">
+        <h2 id="ai-heading">Pengaturan AI</h2>
+        <label for="api-key">Kunci API</label>
+        <input id="api-key" type="password" autocomplete="off" spellcheck="false" disabled>
+
+        <label for="base-url">URL dasar API</label>
+        <input id="base-url" type="url" placeholder="Contoh: https://api.openai.com/v1" autocomplete="off" spellcheck="false" disabled>
+        <p class="hint">Isi sesuai penyedia; jangan tambahkan /chat/completions.</p>
+
+        <label for="model">Nama model</label>
+        <input id="model" type="text" autocomplete="off" spellcheck="false" disabled>
+
+        <button id="check-connection" class="secondary" type="button" disabled>Cek Koneksi</button>
+        <p id="connection-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section aria-labelledby="sheet-heading">
+        <h2 id="sheet-heading">Tujuan penyimpanan</h2>
+        <label for="apps-script-url">URL web app Apps Script</label>
+        <input id="apps-script-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" disabled>
+      </section>
+
+      <button id="save-job" class="primary" type="button" disabled>Simpan ke Spreadsheet</button>
+      <p id="save-status" class="status" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>
