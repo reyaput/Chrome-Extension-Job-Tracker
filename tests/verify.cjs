@@ -89,6 +89,74 @@ test("source descriptions are cleaned and limited to 1500 characters", () => {
   assert.equal(fields.deskripsi.length, 1500);
 });
 
+test("LinkedIn hiring posts preserve all explicit positions without choosing one", () => {
+  const env = background();
+  const text = "WE'RE HIRING\n\nExample Health Indonesia is still looking for professionals to join our growing team in Bekasi!\n\n" +
+    "📌 Available Positions:\nClinic Manager\nGeneral Practitioner\nNurse\nLab Analyst\nRadiographer\nPharmacist\n" +
+    "Assistant Pharmacist\nMedical Record\nPhysiotherapist\nRefractionist\nAdmission\nCashier\n\n" +
+    "Application Deadline: Oct 31, 2026\n\n#Hiring";
+  const fields = env.ctx.extractJobData({ ...page, pageKind: "linkedin-post", post: { text } });
+  assert.equal(fields.nama_pekerjaan.split("; ").length, 12);
+  assert.equal(fields.perusahaan, "Example Health Indonesia");
+  assert.equal(fields.lokasi, "Bekasi");
+  assert.equal(fields.deadline, "2026-10-31");
+  assert.equal(fields.range_gaji, "");
+  assert.equal(fields.tipe_kerja, "");
+  assert.match(fields.deskripsi, /Available Positions/);
+});
+
+test("post labels can fill one role but author names and ambiguous facts are not guessed", () => {
+  const env = background();
+  const fields = env.ctx.extractPostFields("Posisi: Data Analyst\nPerusahaan: Example\nLokasi: Jakarta\n" +
+    "Tipe kerja: Hybrid\nGaji: Rp 8–10 juta\nBatas akhir lamaran: 31 Oktober 2026");
+  assert.equal(fields.nama_pekerjaan, "Data Analyst");
+  assert.equal(fields.perusahaan, "Example");
+  assert.equal(fields.tipe_kerja, "Hybrid");
+  assert.equal(fields.range_gaji, "Rp 8–10 juta");
+  assert.equal(fields.deadline, "2026-10-31");
+  const unknown = env.ctx.extractJobData({ ...page, pageKind: "linkedin-post",
+    post: { text: "WE ARE HIRING\nContact recruiter Example Person.\nDeadline: 31 Oct" },
+    meta: { ogSiteName: "LinkedIn", ogTitle: "Posting | LinkedIn" } });
+  assert.equal(unknown.nama_pekerjaan, "Posting lowongan LinkedIn");
+  for (const field of ["perusahaan", "lokasi", "tipe_kerja", "range_gaji", "deadline"]) assert.equal(unknown[field], "");
+});
+
+test("only explicit valid dates with an unambiguous month and year are accepted", () => {
+  const env = background();
+  for (const text of ["Oct 31, 2026", "31 October 2026", "31 Oktober 2026", "31 Okt. 2026"])
+    assert.equal(env.ctx.normalizeSourceDeadline(text), "2026-10-31");
+  for (const text of ["31 Oct", "10/11/2026", "31 Februari 2026", "besok", "Oct 31, 26"])
+    assert.equal(env.ctx.normalizeSourceDeadline(text), "");
+});
+
+test("generic platform pages and unreadable LinkedIn posts cannot create junk rows", async () => {
+  for (const fixture of [
+    { ...page, hostname: "jobseeker.kalibrr.com", title: "Kalibrr: Where Jobs Find You", siteFields: {},
+      meta: { ogTitle: "Kalibrr: Where Jobs Find You", ogSiteName: "Kalibrr", description: "Kalibrr: Where Jobs Find You" } },
+    { ...page, hostname: "www.linkedin.com", title: "Posting | LinkedIn", siteFields: {}, meta: { ogSiteName: "LinkedIn" } },
+    { ...page, extractionError: "Teks posting LinkedIn belum terbaca. Buka posting lengkap." }
+  ]) {
+    const env = background();
+    env.ctx.chrome.scripting.executeScript = async () => [{ result: fixture }];
+    await assert.rejects(() => env.ctx.saveJob(1), /belum ditemukan|belum terbaca/);
+    assert.equal(env.calls.length, 0);
+  }
+});
+
+test("posting extraction saves a single row containing the current post facts", async () => {
+  const env = background();
+  env.ctx.chrome.scripting.executeScript = async () => [{ result: { ...page,
+    url: "https://www.linkedin.com/posts/example-activity-123-test", hostname: "www.linkedin.com", pageKind: "linkedin-post",
+    post: { text: "Position: Analyst\nCompany: Example Health\nPlacement: Bekasi\nApplication Deadline: Oct 31, 2026" }
+  } }];
+  assert.equal((await env.ctx.saveJob(1)).ok, true);
+  assert.equal(env.calls.length, 1);
+  assert.equal(env.calls[0].body.nama_pekerjaan, "Analyst");
+  assert.equal(env.calls[0].body.perusahaan, "Example Health");
+  assert.equal(env.calls[0].body.platform, "LinkedIn");
+  assert.equal(env.calls[0].body.deadline, "2026-10-31");
+});
+
 test("saving reads the chosen tab and sends one row only to the configured spreadsheet endpoint", async () => {
   const env = background();
   assert.deepEqual(plain(await env.ctx.saveJob(1)), { ok: true, row: 2,
@@ -436,7 +504,7 @@ test("terminal status freezes waiting days and reopening restores the formula", 
 test("manifest and popup expose only the spreadsheet save flow", () => {
   const manifest = JSON.parse(source("extension/manifest.json"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.2.0");
+  assert.equal(manifest.version, "1.3.0");
   assert.equal(manifest.content_scripts, undefined);
   assert.equal(manifest.optional_host_permissions, undefined);
   assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage"]);

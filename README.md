@@ -21,11 +21,12 @@ extension/
   popup.css           Gaya tampilan
   popup.js            URL tujuan dan status hasil
   background.js       Injeksi, ekstraksi data, dan pengiriman ke Apps Script
-  content.js          Pengambilan metadata, JSON-LD, dan detail lowongan
+  content.js          Pengambilan JSON-LD, microdata, dan teks lowongan/posting
 apps-script/
   Code.gs             Setup spreadsheet, penerimaan data, dan trigger Status
 tests/
   verify.cjs          Pengujian regresi lokal tanpa dependensi tambahan
+  browser-fixtures.cjs Pengujian DOM di browser tanpa dependensi tambahan
 README.md             Panduan pemasangan ini
 ```
 
@@ -86,13 +87,17 @@ Biarkan folder ekstensi tetap berada di lokasi pemasangan. Jika dipindahkan, mua
 
 ## 4. Simpan lowongan
 
-1. Buka halaman detail lowongan dan tunggu sampai kontennya tampil. Pada LinkedIn hasil pencarian, pilih lowongan agar panel detail kanan terbuka.
+1. Buka halaman detail lowongan dan tunggu sampai kontennya tampil. Pada LinkedIn hasil pencarian, pilih lowongan agar panel detail kanan terbuka. Untuk posting lowongan, buka tautan posting lengkap (`/posts/…` atau `/feed/update/…`), lalu tampilkan **See more / Lihat selengkapnya** jika teks masih terpotong.
 2. Klik ikon Lamaran Tracker di toolbar Chrome.
 3. Pastikan URL web app sudah terisi.
 4. Klik **Simpan ke Spreadsheet**. Biarkan popup terbuka untuk melihat hasilnya.
 5. Jika berhasil, tampil **Tersimpan: Nama Pekerjaan - Perusahaan**. Buka tab **Lamaran Tracker** untuk memeriksa baris baru.
 
-Ekstensi mengambil data otomatis dari JSON-LD JobPosting, field khusus situs, lalu meta/judul halaman untuk judul dan perusahaan. Informasi yang tidak ditemukan dikosongkan. Deskripsi asli dibersihkan dan dipotong maksimal 1.500 karakter.
+Ekstensi mengambil data otomatis dari JSON-LD JobPosting, microdata HTML JobPosting, field khusus situs, lalu metadata yang sesuai. Judul generik seperti **Kalibrr: Where Jobs Find You** dan **Posting | LinkedIn** tidak dipakai sebagai nama pekerjaan; nama platform juga tidak dipakai sebagai perusahaan. Jika nama pekerjaan tidak ditemukan, proses berhenti dengan pesan yang bisa ditindaklanjuti. Render halaman yang sedang berlangsung ditunggu maksimal enam detik sebelum hasil diperiksa.
+
+Posting LinkedIn dibaca dari teks posting utama atau JSON-LD SocialMediaPosting. Komentar, rekomendasi, dan teks posting lama yang dibagikan ulang tidak dicampur ke teks utama. Nama pekerjaan diambil dari label posisi atau daftar **Available Positions / Posisi tersedia**. Beberapa posisi digabung dengan titik koma dalam **satu baris**, tanpa memilih posisi secara otomatis. Perusahaan, lokasi, tipe kerja, gaji, dan deadline hanya diisi jika tertulis jelas dengan label atau pola kalimat yang didukung; nama akun penulis bukan nama perusahaan. Posting tanpa posisi yang jelas memakai label **Posting lowongan LinkedIn**, sementara teksnya tetap menjadi deskripsi.
+
+Informasi yang tidak ditemukan dikosongkan. Deskripsi asli dibersihkan dan dipotong maksimal 1.500 karakter. Teks lowongan yang hanya berada di dalam gambar belum dapat dibaca otomatis. Jika teks posting tidak dapat diakses, ekstensi menampilkan langkah membuka posting lengkap/login dan tidak menambahkan baris kosong.
 
 Setiap klik simpan menambahkan baris baru. Tidak ada preview atau pemeriksaan duplikat. URL halaman disimpan lengkap, termasuk seluruh parameter.
 
@@ -129,6 +134,8 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 | Chrome tidak bisa membaca halaman lowongan | Tutup popup, pilih tab lowongan, lalu buka kembali melalui ikon ekstensi. Setelah reload ekstensi, refresh halaman lowongan juga. Popup yang dibuka sebagai halaman biasa/Inspect dapat tidak memperoleh izin tab aktif. |
 | Halaman tidak dapat diambil | Gunakan halaman http/https biasa. Halaman `chrome://`, Web Store, PDF viewer, dan halaman lain yang dilindungi Chrome tidak bisa diinjeksi. |
 | Halaman kosong | Tunggu detail lowongan dimuat; untuk hasil pencarian, buka/pilih lowongan dahulu. |
+| Nama pekerjaan belum ditemukan / judul platform saja | Muat ulang ekstensi ke versi 1.3.0, refresh tab, dan pastikan halaman detail sudah tampil. Proses tidak menyimpan judul generik sebagai lowongan. |
+| Teks posting LinkedIn belum terbaca | Buka posting lengkap, klik See more / Lihat selengkapnya, dan login jika diperlukan. Teks dalam gambar belum didukung. |
 | Beberapa kolom kosong | Halaman mungkin tidak menyediakan JSON-LD/metadata atau selector belum cocok. Jangan anggap data kosong sebagai data yang berhasil ditemukan. |
 | Waktu tunggu/jaringan bermasalah | Periksa koneksi dan endpoint. Periksa spreadsheet sebelum mengulang karena request yang sudah diterima server bisa tetap selesai. |
 
@@ -137,29 +144,31 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 - **Ekstensi:** setelah mengubah file di folder `extension`, buka `chrome://extensions` lalu klik ikon **Reload / Muat ulang** pada Lamaran Tracker. Buka kembali popup.
 - **Apps Script:** tempel versi `Code.gs` terbaru dan simpan. Jalankan `setupSheet` jika perlu menerapkan format/dropdown, lalu pilih **Deploy > Manage deployments > Edit**, pilih **New version**, dan klik **Deploy**. Menyimpan kode saja tidak memperbarui deployment `/exec` yang sudah aktif.
 
-## Selector yang belum terverifikasi
+## Cakupan pembaca situs
 
-Seluruh kandidat selector berada pada objek `SITE_SELECTORS` di bagian atas `extension/content.js`. Situs asli tidak dibuka selama pembuatan, sehingga tabel ini **bukan klaim dukungan yang sudah diuji langsung**.
+Pada 11 Oktober 2026, struktur halaman publik [contoh Kalibrr](https://jobseeker.kalibrr.com/c/pt-binajasa-sumber-sarana/jobs/271601/account-support-coordinator-bandung) dan [contoh posting LinkedIn](https://www.linkedin.com/posts/nadiya-jvstnad_hiring-hiring-healthcarejobs-share-7514606290451607552-jP1-/) diperiksa langsung. Kalibrr memakai microdata HTML untuk judul, organisasi, lokasi, dan deadline, serta teks gaji/deskripsi yang tampil. Posting publik LinkedIn memakai kartu posting yang sesuai ID share/activity dan teks komentar utama, dengan JSON-LD SocialMediaPosting sebagai cadangan. Pemeriksaan dua contoh ini tidak menjamin semua tampilan/login situs.
+
+Pengujian DOM lokal juga mencakup contoh kartu LinkedIn saat login, pemuatan SPA yang terlambat, beberapa kartu feed, ID posting berbeda, JSON-LD bersarang, dan teks repost yang berbeda deadline. Selector varian login masih memerlukan pemeriksaan langsung di akun pengguna. Kandidat lain berada pada objek `SITE_SELECTORS` di `extension/content.js`:
 
 | Situs | Selector/field yang belum terverifikasi |
 | --- | --- |
-| LinkedIn | Container/panel detail kanan, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
+| LinkedIn Jobs | Container/panel detail kanan, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 | JobStreet | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 | Glints | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
-| Kalibrr | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
+| Kalibrr | Selector lama/varian tanpa microdata dan field tipe kerja yang tidak eksplisit |
 | Indeed | Container/panel detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 
-Selector yang tidak ditemukan mengembalikan `null`. JSON-LD dan metadata tetap dapat dipakai jika field khusus situs tidak ditemukan.
+Selector yang tidak ditemukan mengembalikan `null`. JSON-LD, microdata pada container detail, dan metadata tetap dapat dipakai jika field khusus situs tidak ditemukan.
 
 ## Asumsi yang perlu dikonfirmasi
 
 1. `setupSheet()` merekam ID spreadsheet aktif ke Script Properties agar web app dapat membuka spreadsheet asal dengan `openById`. Pengguna tidak memasukkan ID/tautan spreadsheet. Ini diperlukan karena konteks spreadsheet aktif tidak tersedia saat skrip dijalankan sebagai web app; lihat [dokumentasi container-bound Google](https://developers.google.com/apps-script/guides/bound).
-2. Jika terdapat beberapa JobPosting, ekstensi memakai objek pertama yang ditemukan. Lokasi terstruktur dirangkai dari locality, region, country dengan koma; beberapa lokasi dipisah titik koma. Tidak ada pencocokan otomatis dengan ID lowongan pada URL.
-3. Deadline hanya menerima tanggal ISO `yyyy-mm-dd` atau timestamp ISO dan memakai bagian tanggal sebagaimana tertulis. Tanggal relatif seperti “3 hari lagi” dan format lokal ambigu dikosongkan.
+2. Jika terdapat beberapa JSON-LD JobPosting, ekstensi memakai objek pertama yang ditemukan, lalu microdata pada container detail. Lokasi terstruktur dirangkai dari locality, region, country dengan koma; beberapa lokasi dipisah titik koma. JobPosting belum dicocokkan otomatis dengan ID lowongan pada URL; kartu posting LinkedIn dicocokkan dengan ID share/activity jika tersedia.
+3. Deadline menerima tanggal ISO `yyyy-mm-dd`, timestamp ISO, atau nama bulan Indonesia/Inggris dengan tahun lengkap, seperti `31 Oktober 2026` dan `Oct 31, 2026`. Timestamp memakai bagian tanggal sebagaimana tertulis. Tanggal relatif, tanggal tanpa tahun, dan format numerik ambigu seperti `10/11/2026` dikosongkan.
 4. Gaji terstruktur yang hanya berupa angka/objek numerik tidak dirangkai menjadi teks rentang. Ekstensi memakai gaji teks JSON-LD jika tersedia, lalu field gaji situs, atau mengosongkan kolom.
 5. Setiap request jaringan memiliki waktu tunggu 25 detik. Tidak ada pengiriman ulang otomatis. Penantian lock spreadsheet maksimal 10 detik.
 6. URL web app harus berasal dari `https://script.google.com/macros/.../exec`. Header yang berubah setelah setup juga ditolak saat penyimpanan agar data tidak ditulis pada susunan kolom berbeda.
-7. Nama perusahaan pada cadangan terakhir memakai `og:site_name` apa adanya. Metadata situs dapat berisi nama platform; judul halaman juga dapat memuat nama situs. Ekstensi tidak menebak atau memisahkan teks tersebut.
+7. Nama perusahaan pada cadangan terakhir memakai `og:site_name` jika nilainya bukan nama platform. Metadata judul generik yang dikenal disaring, tetapi metadata judul lainnya tetap berasal dari situs dan dapat memuat nama situs. Posting bebas hanya mendukung pola teks eksplisit; informasi lain harus diperiksa atau dilengkapi di Sheets.
 8. Tinggi baris data mengikuti isi sel melalui `autoResizeRows`, setelah wrapping dan lebar kolom diterapkan. Kolom kosong setelah N disembunyikan secara aman; kolom yang menyimpan data tetap dipertahankan. Aturan warna tracker diperbarui tanpa menumpuk duplikat.
 
 ## Keterbatasan dan pemeriksaan
@@ -168,7 +177,7 @@ Pengambilan mencakup dokumen utama yang sudah tampil; tidak ada scroll otomatis,
 
 Jika popup ditutup saat menyimpan, pekerjaan yang sudah diterima tetap dijalankan background, tetapi hasil tidak ditampilkan ulang otomatis saat popup dibuka. Periksa spreadsheet sebelum klik simpan lagi. Penyelesaian tetap bergantung pada koneksi serta masa hidup service worker Chrome.
 
-Pengujian regresi lokal memakai mock Chrome dan Apps Script untuk memeriksa ekstraksi data, penyimpanan satu baris, URL tab yang kosong, penolakan halaman terbatas/izin injeksi, pengaturan popup, respons web app, pengamanan data, serta penerapan gaya spreadsheet. Sintaks seluruh file JavaScript dan Code.gs, serta manifest JSON, juga diperiksa. Deployment Google, izin Chrome yang nyata, dan selector situs asli memerlukan pemeriksaan langsung setelah pemasangan.
+Pengujian regresi lokal memakai mock Chrome dan Apps Script untuk memeriksa ekstraksi data, penyimpanan satu baris, URL tab yang kosong, penolakan halaman terbatas/izin injeksi, pengaturan popup, respons web app, pengamanan data, serta penerapan gaya spreadsheet. Pengujian DOM menggunakan kode ekstraksi yang sama di browser. Deployment Google, izin Chrome yang nyata, dan varian situs lainnya tetap memerlukan pemeriksaan setelah pemasangan.
 
 Jika Node.js tersedia, pemeriksaan sintaks dan regresi dapat dijalankan dari folder proyek melalui PowerShell:
 
@@ -180,5 +189,7 @@ node --test .\tests\verify.cjs
 ```
 
 Node.js hanya digunakan untuk pemeriksaan pengembangan, bukan syarat pemasangan atau penggunaan ekstensi.
+
+Untuk mengulang pengujian DOM, jalankan `node tests/browser-fixtures.cjs`, buka `http://127.0.0.1:8765`, dan tunggu semua kasus selesai (beberapa kasus menguji batas tunggu enam detik). Halaman menampilkan PASS/FAIL tanpa mengirim data ke spreadsheet. Hentikan server dengan Ctrl+C setelah selesai.
 
 Rujukan implementasi: [izin activeTab Chrome](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab), [API tabs Chrome](https://developer.chrome.com/docs/extensions/reference/api/tabs), [deployment web app Google](https://developers.google.com/apps-script/guides/web), [format sheet Google](https://developers.google.com/apps-script/reference/spreadsheet/sheet), dan [penulisan nilai/teks pada Sheets](https://developers.google.com/apps-script/reference/spreadsheet/range).

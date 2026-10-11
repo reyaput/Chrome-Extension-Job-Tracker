@@ -1,8 +1,8 @@
-(() => {
+(async () => {
   "use strict";
 
-  // SEMUA selector berikut adalah kandidat yang BELUM diverifikasi pada situs asli.
-  // Nama kelas/atribut dapat berubah. Field yang tidak ditemukan mengembalikan null.
+  // Microdata Kalibrr dan posting publik LinkedIn diperiksa pada 11 Oktober 2026.
+  // Selector situs/varian lainnya masih kandidat; field yang hilang tetap null.
   // LinkedIn: cari panel detail kanan, termasuk /jobs/search-results/?currentJobId=….
   const SITE_SELECTORS = {
     linkedin: {
@@ -36,8 +36,8 @@
       description: ["[data-testid='job-description']", "[data-test='job-description']"]
     },
     kalibrr: {
-      container: [".k-job-details", "[data-testid='job-details']"],
-      title: [".k-job-details h1", "[data-testid='job-title']"],
+      container: ["[itemscope][itemtype$='/JobPosting']", ".k-job-details", "[data-testid='job-details']"],
+      title: ["h1[itemprop='title']", ".k-job-details h1", "[data-testid='job-title']"],
       company: [".k-job-details .company-name", "[data-testid='company-name']"],
       location: [".k-job-details .job-location", "[data-testid='job-location']"],
       workType: [".k-job-details .workplace-type", "[data-testid='workplace-type']"],
@@ -61,16 +61,17 @@
     return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   }
 
-  function htmlToText(value) {
+  function htmlToText(value, keepLines = false) {
     if (typeof value !== "string") return "";
     const parsed = new DOMParser().parseFromString(value, "text/html");
     parsed.querySelectorAll("script, style, noscript").forEach((element) => element.remove());
     // Pemisah mempertahankan batas kata pada paragraf dan baris yang berdampingan.
-    parsed.querySelectorAll("br").forEach((element) => element.replaceWith(parsed.createTextNode(" ")));
+    const separator = keepLines ? "\n" : " ";
+    parsed.querySelectorAll("br").forEach((element) => element.replaceWith(parsed.createTextNode(separator)));
     parsed.querySelectorAll("p, div, li, section, h1, h2, h3, h4, tr").forEach((element) => {
-      element.appendChild(parsed.createTextNode(" "));
+      element.appendChild(parsed.createTextNode(separator));
     });
-    return cleanText(parsed.body.textContent);
+    return keepLines ? parsed.body.textContent.replace(/\r\n?/g, "\n").trim() : cleanText(parsed.body.textContent);
   }
 
   function findElement(root, selectors = []) {
@@ -134,10 +135,9 @@
     };
   }
 
-  const jobPostings = [];
-  function collectJobPostings(value) {
+  function collectStructuredData(value, jobPostings, socialPosts) {
     if (Array.isArray(value)) {
-      value.forEach(collectJobPostings);
+      value.forEach((item) => collectStructuredData(item, jobPostings, socialPosts));
       return;
     }
     if (!value || typeof value !== "object") return;
@@ -145,39 +145,117 @@
     if (types.some((type) => typeof type === "string" && /(?:^|[/#])JobPosting$/.test(type))) {
       jobPostings.push(selectJobFields(value));
     }
+    if (types.some((type) => typeof type === "string" && /(?:^|[/#])SocialMediaPosting$/.test(type))) {
+      socialPosts.push({ url: value["@id"] || value.url || "", text: htmlToText(value.articleBody, true) });
+      return; // Komentar dan posting lama yang dibagikan ulang bukan posting utama.
+    }
     // Penelusuran ini menangani @graph, array, dan objek terstruktur bersarang.
-    Object.values(value).forEach(collectJobPostings);
+    Object.values(value).forEach((item) => collectStructuredData(item, jobPostings, socialPosts));
   }
 
-  document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
-    try {
-      collectJobPostings(JSON.parse(script.textContent));
-    } catch {
-      // JSON-LD yang rusak diabaikan; sumber lainnya tetap dapat digunakan.
+  function readMicrodataJob(root) {
+    // Atribut schema.org juga sah ketika nilainya berupa meta/elemen tersembunyi.
+    // Jangan mengambil properti dari organisasi atau rekomendasi lain di luar scope ini.
+    const value = (scope, prop) => {
+      const element = scope?.querySelector(`[itemprop~='${prop}']`);
+      return cleanText(element?.getAttribute("content") || element?.getAttribute("datetime") || element?.textContent);
+    };
+    const organization = root.querySelector("[itemprop~='hiringOrganization']");
+    const locations = [...root.querySelectorAll("[itemprop~='jobLocation']")].map((place) => {
+      const address = place.querySelector("[itemprop~='address']") || place;
+      return { address: { addressLocality: value(address, "addressLocality"),
+        addressRegion: value(address, "addressRegion"), addressCountry: value(address, "addressCountry") } };
+    });
+    return { title: value(root, "title"), hiringOrganization: { name: value(organization, "name") },
+      jobLocation: locations, jobLocationType: value(root, "jobLocationType"),
+      validThrough: value(root, "validThrough"), description: readField(root, ["[itemprop~='description']"], "description") };
+  }
+
+  const POST_ROOT_SELECTOR = ".main-feed-activity-card, .feed-shared-update-v2, [data-view-name='feed-full-update']";
+  const POST_TEXT_SELECTORS = ["[data-test-id='main-feed-activity-card__commentary']", ".update-components-text",
+    ".feed-shared-text", ".feed-shared-update-v2__description-wrapper"];
+
+  function readLinkedInPost(socialPosts) {
+    const path = decodeURIComponent(location.pathname);
+    const id = path.match(/-(?:activity|share)-(\d+)(?:-|\/|$)/)?.[1] || path.match(/urn:li:(?:activity|share):(\d+)/)?.[1];
+    const canonical = document.querySelector("link[rel='canonical']")?.href;
+    const canonicalId = canonical?.match(/-(?:activity|share)-(\d+)(?:-|\/|$)/)?.[1];
+    const ids = [id, canonicalId].filter(Boolean);
+    const identityAttributes = ["data-activity-urn", "data-attributed-urn", "data-urn"];
+    const roots = [...document.querySelectorAll(POST_ROOT_SELECTOR)].filter((element) => element.getClientRects().length &&
+      !element.parentElement?.closest(POST_ROOT_SELECTOR));
+    const matches = (element) => identityAttributes.some((attr) =>
+      ids.some((postId) => element.getAttribute(attr)?.endsWith(`:${postId}`)));
+    let root = roots.find(matches);
+    // Launched post permalinks can use a share ID while the card uses an activity ID.
+    // A single top-level card is safe; never choose the first of multiple feed cards.
+    if (!root && roots.length === 1 && (!ids.length || !identityAttributes.some((attr) => roots[0].hasAttribute(attr)))) root = roots[0];
+    for (const selector of POST_TEXT_SELECTORS) {
+      for (const element of root?.querySelectorAll(selector) || []) {
+        const quoted = element.closest(".feed-reshare-content, .feed-shared-mini-update-v2, [aria-label='Reshared post']");
+        if (element.closest(POST_ROOT_SELECTOR) !== root || quoted || !element.getClientRects().length) continue;
+        const text = (element.innerText || "").trim();
+        if (text) return { text };
+      }
     }
-  });
+    const structured = socialPosts.find((post) => ids.some((postId) => post.url.includes(postId)) || (canonical && post.url === canonical)) ||
+      (!ids.length && socialPosts.length === 1 && roots.length <= 1 ? socialPosts[0] : null);
+    return { text: structured?.text || "" };
+  }
 
   const hostname = location.hostname.toLowerCase();
   const config = getSiteConfig(hostname);
-  const container = config ? findElement(document, config.container) : null;
-  const root = container || document;
-  const siteFields = {};
-  for (const field of ["title", "company", "location", "workType", "salary", "deadline", "description"]) {
-    siteFields[field] = config ? readField(root, config[field], field) : null;
+  const isLinkedInPost = config === SITE_SELECTORS.linkedin && /^\/(?:posts\/|feed\/update\/)/.test(location.pathname);
+
+  function readPage() {
+    const jobPostings = [], socialPosts = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      try { collectStructuredData(JSON.parse(script.textContent), jobPostings, socialPosts); } catch {
+        // JSON-LD rusak tidak menghentikan pembacaan DOM.
+      }
+    });
+    const container = config ? findElement(document, config.container) : null;
+    const root = container || document;
+    const siteFields = {};
+    for (const field of ["title", "company", "location", "workType", "salary", "deadline", "description"]) {
+      siteFields[field] = !isLinkedInPost && config ? readField(root, config[field], field) : null;
+    }
+    if (!isLinkedInPost && container?.matches("[itemscope][itemtype$='/JobPosting']")) {
+      jobPostings.push(readMicrodataJob(container));
+      if (config === SITE_SELECTORS.kalibrr) {
+        const title = findElement(root, ["h1[itemprop='title']"]);
+        const header = title?.parentElement;
+        siteFields.company ||= readField(header || root, ["a[href*='/c/'] h2"], "company");
+        // Gaji diambil dari teks yang tampil, termasuk mata uang dan periodenya.
+        const salaryRow = root.querySelector("[itemprop~='baseSalary']")?.closest("li");
+        siteFields.salary ||= cleanText(salaryRow?.innerText) || null;
+        siteFields.location ||= readField(header || root, ["span[itemtype$='/PostalAddress']"], "location");
+      }
+    }
+    return {
+      url: location.href, hostname, title: document.title,
+      pageKind: isLinkedInPost ? "linkedin-post" : "job",
+      post: isLinkedInPost ? readLinkedInPost(socialPosts) : null,
+      meta: { ogTitle: readMeta('meta[property="og:title"]'), ogSiteName: readMeta('meta[property="og:site_name"]'),
+        ogDescription: readMeta('meta[property="og:description"]'), description: readMeta('meta[name="description"]') },
+      jobPostings, siteFields,
+      hasPageText: Boolean((container?.innerText || document.body?.innerText || "").trim())
+    };
   }
 
-  return {
-    url: location.href,
-    hostname,
-    title: document.title,
-    meta: {
-      ogTitle: readMeta('meta[property="og:title"]'),
-      ogSiteName: readMeta('meta[property="og:site_name"]'),
-      ogDescription: readMeta('meta[property="og:description"]'),
-      description: readMeta('meta[name="description"]')
-    },
-    jobPostings,
-    siteFields,
-    hasPageText: Boolean((container?.innerText || document.body?.innerText || "").trim())
-  };
+  let page = readPage();
+  const ready = () => isLinkedInPost ? Boolean(page.post.text) : Boolean(page.jobPostings.some((job) => job.title) || page.siteFields.title);
+  // SPA dapat menampilkan judul platform sebelum detail lowongan selesai dimuat.
+  // Beri render yang sedang berjalan kesempatan selesai, dengan batas enam detik.
+  if (config && !ready()) {
+    const until = Date.now() + 6000;
+    while (!ready() && Date.now() < until) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      page = readPage();
+    }
+  }
+  if (isLinkedInPost && !page.post.text) {
+    page.extractionError = "Teks posting LinkedIn belum terbaca. Buka posting lengkap, tampilkan teks dengan See more / Lihat selengkapnya, dan login jika diminta. Lowongan yang hanya ada di gambar belum bisa dibaca otomatis.";
+  }
+  return page;
 })();

@@ -39,6 +39,24 @@ function normalizeSourceDeadline(value) {
     const datePart = text.slice(0, 10);
     if (isValidIsoDate(datePart)) return datePart;
   }
+  // Nama bulan dan tahun eksplisit tidak ambigu; jangan menebak tahun yang hilang.
+  const months = {
+    jan: 1, january: 1, januari: 1, feb: 2, february: 2, februari: 2,
+    mar: 3, march: 3, maret: 3, apr: 4, april: 4, may: 5, mei: 5,
+    jun: 6, june: 6, juni: 6, jul: 7, july: 7, juli: 7,
+    aug: 8, august: 8, agu: 8, agustus: 8, sep: 9, sept: 9, september: 9,
+    oct: 10, october: 10, okt: 10, oktober: 10, nov: 11, november: 11,
+    dec: 12, december: 12, des: 12, desember: 12
+  };
+  const dayFirst = text.match(/^(\d{1,2})\s+([a-z]+)\.?\s*,?\s*(\d{4})$/i);
+  const monthFirst = text.match(/^([a-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$/i);
+  if (dayFirst || monthFirst) {
+    const month = months[(dayFirst?.[2] || monthFirst[1]).toLowerCase()];
+    const day = dayFirst?.[1] || monthFirst[2];
+    const year = dayFirst?.[3] || monthFirst[3];
+    const iso = `${year}-${String(month || 0).padStart(2, "0")}-${day.padStart(2, "0")}`;
+    if (isValidIsoDate(iso)) return iso;
+  }
   return "";
 }
 
@@ -71,19 +89,65 @@ function getSalaryText(baseSalary) {
   return "";
 }
 
+function extractPostFields(value) {
+  const text = textValue(value).replace(/\r\n?/g, "\n");
+  const lines = text.split("\n").map((line) => cleanText(line)
+    .replace(/^[^\p{L}\p{N}]+/u, "").replace(/^\d+[.)]\s*/, ""));
+  const labeled = (labels) => {
+    const pattern = new RegExp(`^(?:${labels})\\s*[:：]\\s*(.+)$`, "i");
+    return lines.map((line) => line.match(pattern)?.[1] || "").find(Boolean) || "";
+  };
+  const positions = [];
+  const heading = lines.findIndex((line) => /^(?:available positions|open positions|posisi (?:yang )?tersedia|lowongan tersedia)\s*[:：]?$/i.test(line));
+  if (heading >= 0) {
+    for (const line of lines.slice(heading + 1)) {
+      if (!line) { if (positions.length) break; else continue; }
+      if (/^apply\s*:/i.test(line)) continue;
+      if (line.length > 90 || /[:：#]|https?:\/\//i.test(line) ||
+          /^(?:explore|please|application|qualifications|requirements|placement|location|deadline)\b/i.test(line)) break;
+      positions.push(line);
+      if (positions.length === 30) break;
+    }
+  }
+  const companySentence = lines.map((line) => line.match(/^(.{2,100}?)\s+is\s+(?:still\s+)?(?:looking for|hiring|recruiting)\b/i)?.[1] || "").find(Boolean);
+  const locationSentence = lines.map((line) => line.match(/\bjoin our (?:growing )?team in ([^.!?\n]{2,100})[.!?]?$/i)?.[1] || "").find(Boolean);
+  return {
+    nama_pekerjaan: labeled("job title|position|posisi|role|jabatan") || [...new Set(positions)].join("; ") || "Posting lowongan LinkedIn",
+    perusahaan: labeled("company|hiring company|perusahaan|nama perusahaan") || companySentence || "",
+    lokasi: labeled("location|placement|penempatan|lokasi") || locationSentence || "",
+    tipe_kerja: normalizeWorkType(labeled("work type|workplace|work arrangement|tipe kerja")),
+    range_gaji: labeled("salary|compensation|gaji|range gaji"),
+    deadline: normalizeSourceDeadline(labeled("application deadline|apply before|deadline|batas (?:akhir )?(?:lamaran|pendaftaran)")),
+    deskripsi: cleanText(text).slice(0, MAX_DESCRIPTION_CHARS)
+  };
+}
+
+function usableMetadata(value, hostname) {
+  const text = cleanText(value);
+  const platform = getPlatform(hostname);
+  if (platform === "Website Perusahaan") return text;
+  const normalized = text.toLowerCase().replace(/[|:–—-]/g, " ").replace(/\s+/g, " ").trim();
+  const brand = platform.toLowerCase();
+  if (normalized === brand || (brand === "kalibrr" && normalized === "kalibrr where jobs find you") ||
+      /^(?:posting|post|feed|sign in|log in|login|masuk) linkedin$/.test(normalized) ||
+      /^linkedin (?:posting|post|feed|sign in|log in|login|masuk|log in or sign up)$/.test(normalized)) return "";
+  return text;
+}
+
 function extractJobData(page) {
+  if (page.pageKind === "linkedin-post") return extractPostFields(page.post?.text);
   const job = page.jobPostings[0] || {};
   const fields = page.siteFields;
   const locationTypes = Array.isArray(job.jobLocationType) ? job.jobLocationType : [job.jobLocationType];
   const structuredWorkType = locationTypes.includes("TELECOMMUTE") ? "Remote" : "";
   return {
-    nama_pekerjaan: cleanText(job.title) || cleanText(fields.title) || cleanText(page.meta.ogTitle) || cleanText(page.title),
-    perusahaan: cleanText(job.hiringOrganization?.name) || cleanText(fields.company) || cleanText(page.meta.ogSiteName),
+    nama_pekerjaan: cleanText(job.title) || cleanText(fields.title) || usableMetadata(page.meta.ogTitle, page.hostname) || usableMetadata(page.title, page.hostname),
+    perusahaan: cleanText(job.hiringOrganization?.name) || cleanText(fields.company) || usableMetadata(page.meta.ogSiteName, page.hostname),
     lokasi: getLocationText(job.jobLocation) || textValue(fields.location),
     tipe_kerja: structuredWorkType || normalizeWorkType(fields.workType),
     range_gaji: getSalaryText(job.baseSalary) || textValue(fields.salary),
     deadline: normalizeSourceDeadline(job.validThrough) || normalizeSourceDeadline(fields.deadline),
-    deskripsi: cleanText(job.description || fields.description || page.meta.description || page.meta.ogDescription)
+    deskripsi: cleanText(job.description || fields.description || usableMetadata(page.meta.description, page.hostname) || usableMetadata(page.meta.ogDescription, page.hostname))
       .slice(0, MAX_DESCRIPTION_CHARS)
   };
 }
@@ -164,10 +228,14 @@ async function saveJob(tabId) {
   const page = results?.[0]?.result;
   if (!page) throw new Error("Halaman tidak mengembalikan data lowongan.");
   validatePageUrl(page.url);
+  if (page.extractionError) throw new Error(page.extractionError);
   if (!page.hasPageText && !page.jobPostings.length && !Object.values(page.siteFields).some(textValue)) {
     throw new Error("Halaman kosong atau detail lowongan belum dimuat. Tunggu sampai detail lowongan tampil, lalu coba kembali.");
   }
   const fields = extractJobData(page);
+  if (!fields.nama_pekerjaan) {
+    throw new Error("Nama pekerjaan belum ditemukan pada halaman ini. Tunggu detail lowongan selesai dimuat dan buka halaman detailnya. Judul platform saja tidak akan disimpan sebagai lowongan.");
+  }
   const data = { ...fields, platform: getPlatform(page.hostname), link: page.url };
   const result = await postToSheet(appsScriptUrl, data);
   return { ok: true, row: result.row, nama_pekerjaan: data.nama_pekerjaan, perusahaan: data.perusahaan };
