@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Lamaran Tracker</title>
     <link rel="stylesheet" href="popup.css">
-    <script src="ai-route.js" defer></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
@@ -15,40 +14,11 @@
         <p>Simpan lowongan yang sedang dibuka ke Google Sheets.</p>
       </header>
 
-      <section aria-labelledby="mode-heading">
-        <h2 id="mode-heading">Mode pengambilan</h2>
-        <div class="mode-toggle" role="group" aria-label="Mode pengambilan data">
-          <button id="ai-mode" type="button" aria-pressed="false" aria-describedby="mode-help" disabled>AI</button>
-          <button id="manual-mode" type="button" aria-pressed="true" disabled>Manual</button>
-        </div>
-        <p id="mode-help" class="hint">Mode AI terkunci sampai Cek Koneksi berhasil. Manual mengambil data tanpa AI.</p>
-      </section>
-
-      <section aria-labelledby="ai-heading">
-        <h2 id="ai-heading">Pengaturan AI</h2>
-        <label for="api-key">Kunci API</label>
-        <input id="api-key" type="password" autocomplete="off" spellcheck="false" disabled>
-
-        <label for="model-route">Rute model</label>
-        <input id="model-route" type="text" placeholder="apodex/apodex-1.1-mini:free" autocomplete="off" spellcheck="false" aria-describedby="route-help" disabled>
-        <p id="route-info" class="hint"></p>
-        <details id="route-help" class="route-help">
-          <summary>Contoh rute per penyedia</summary>
-          <p>OpenAI langsung: <code>openai:gpt-4.1-mini</code></p>
-          <p>Anthropic langsung: <code>anthropic:claude-sonnet-4-6</code></p>
-          <p>OpenRouter: <code>openrouter:apodex/apodex-1.1-mini:free</code></p>
-          <p>API lain yang kompatibel: <code>https://alamat-api/v1#id-model</code></p>
-          <p>ID <code>organisasi/model</code> atau URL halaman model OpenRouter juga diterima.</p>
-        </details>
-
-        <button id="check-connection" class="secondary" type="button" disabled>Cek Koneksi</button>
-        <p id="connection-status" class="status" role="status" aria-live="polite"></p>
-      </section>
-
       <section aria-labelledby="sheet-heading">
         <h2 id="sheet-heading">Tujuan penyimpanan</h2>
         <label for="apps-script-url">URL web app Apps Script</label>
-        <input id="apps-script-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" disabled>
+        <input id="apps-script-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" aria-describedby="sheet-help" disabled>
+        <p id="sheet-help" class="hint">URL tujuan tersimpan otomatis. Buka halaman detail lowongan, lalu klik Simpan.</p>
       </section>
 
       <button id="save-job" class="primary" type="button" disabled>Simpan ke Spreadsheet</button>

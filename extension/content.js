@@ -178,6 +178,6 @@
     },
     jobPostings,
     siteFields,
-    jobText: (container?.innerText || document.body?.innerText || "").trim()
+    hasPageText: Boolean((container?.innerText || document.body?.innerText || "").trim())
   };
 })();

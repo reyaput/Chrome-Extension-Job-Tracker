@@ -12,218 +12,127 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 function storage(initial = {}) {
   const data = { ...initial };
   return { data, api: {
-    async get(keys) { return keys === null ? { ...data } : { ...keys, ...data }; },
+    async get(keys) {
+      if (keys === null) return { ...data };
+      return Object.fromEntries(Object.entries(keys).map(([key, fallback]) =>
+        [key, Object.prototype.hasOwnProperty.call(data, key) ? data[key] : fallback]));
+    },
     async set(patch) { Object.assign(data, patch); },
     async remove(keys) { for (const key of keys) delete data[key]; }
   } };
 }
 
-function routes() {
-  const ctx = vm.createContext({ URL });
-  vm.runInContext(source("extension/ai-route.js"), ctx);
-  return ctx.AiRoutes;
-}
+const scriptUrl = "https://script.google.com/macros/s/test/exec";
+const response = (body, status = 200) => ({ status, ok: status >= 200 && status < 300, async text() {
+  return typeof body === "string" ? body : JSON.stringify(body);
+} });
+const page = { title: "Data Analyst", url: "https://glints.com/jobs/123", hostname: "glints.com",
+  meta: {}, jobPostings: [], siteFields: { title: "Data Analyst", company: "Example" }, hasPageText: true };
 
-const routeCases = [
-  ["apodex/apodex-1.1-mini:free", "openrouter", "apodex/apodex-1.1-mini:free", "https://openrouter.ai/api/v1/chat/completions"],
-  ["openrouter:openai/gpt-4.1-mini", "openrouter", "openai/gpt-4.1-mini", "https://openrouter.ai/api/v1/chat/completions"],
-  ["openai:gpt-4.1-mini", "openai", "gpt-4.1-mini", "https://api.openai.com/v1/chat/completions"],
-  ["gpt-4.1-mini", "openai", "gpt-4.1-mini", "https://api.openai.com/v1/chat/completions"],
-  ["o3-mini", "openai", "o3-mini", "https://api.openai.com/v1/chat/completions"],
-  ["anthropic:claude-sonnet-4-6", "anthropic", "claude-sonnet-4-6", "https://api.anthropic.com/v1/messages"],
-  ["claude-sonnet-4-6", "anthropic", "claude-sonnet-4-6", "https://api.anthropic.com/v1/messages"],
-  ["https://openrouter.ai/apodex/apodex-1.1-mini:free", "openrouter", "apodex/apodex-1.1-mini:free", "https://openrouter.ai/api/v1/chat/completions"],
-  ["https://api.example.com/v1#vendor/model", "compatible", "vendor/model", "https://api.example.com/v1/chat/completions"],
-  ["https://api.example.com/v1/chat/completions#model-1", "compatible", "model-1", "https://api.example.com/v1/chat/completions"],
-  ["https://api.anthropic.com/v1/messages#claude-sonnet-4-6", "anthropic", "claude-sonnet-4-6", "https://api.anthropic.com/v1/messages"],
-  ["http://localhost:1234/v1#local-model", "compatible", "local-model", "http://localhost:1234/v1/chat/completions"]
-];
-for (const [input, provider, model, endpoint] of routeCases) {
-  test(`route resolves: ${input}`, () => {
-    const result = routes().resolve(input);
-    assert.equal(result.provider, provider);
-    assert.equal(result.model, model);
-    assert.equal(result.endpoint, endpoint);
-    assert.equal(result.permissionOrigin, `${new URL(endpoint).protocol}//${new URL(endpoint).hostname}/*`);
-  });
-}
-
-test("invalid or incomplete routes explain the correction", () => {
-  const api = routes();
-  for (const value of ["", "Apodex", "https://api.example.com/v1", "https://user:secret@api.example.com/v1#m", "openai:org/model", "https://openrouter.ai/org/%zz"]) {
-    assert.throws(() => api.resolve(value), /[Rr]ute|model|kredensial/);
-  }
-});
-
-test("legacy migration fixes the pictured OpenRouter webpage without losing explicit routes", () => {
-  const api = routes();
-  assert.equal(api.migrateLegacySettings({ baseUrl: "https://openrouter.ai/apodex/apodex-1.1-mini:free", model: "Apodex" }), "openrouter:apodex/apodex-1.1-mini:free");
-  assert.equal(api.migrateLegacySettings({ baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" }), "openai:gpt-4.1-mini");
-  assert.equal(api.migrateLegacySettings({ baseUrl: "https://api.example.com/v1", model: "org/model" }), "https://api.example.com/v1#org%2Fmodel");
-  assert.equal(api.migrateLegacySettings({ modelRoute: "anthropic:claude-sonnet-4-6", model: "old" }), "anthropic:claude-sonnet-4-6");
-});
-
-const chatReply = (content = "OK") => ({ choices: [{ message: { role: "assistant", content } }] });
-const response = (body, status = 200) => ({ status, ok: status >= 200 && status < 300, async text() { return typeof body === "string" ? body : JSON.stringify(body); } });
-const page = { title: "Data Analyst", url: "https://glints.com/jobs/123", hostname: "glints.com", meta: {}, jobPostings: [], siteFields: { title: "Data Analyst", company: "Example" }, jobText: "Analyst duties" };
-function background(initial = {}, fetcher = async () => response(chatReply())) {
-  const saved = storage({ apiKey: "test-key", modelRoute: "openai:gpt-4.1-mini", ...initial });
-  const calls = [];
+function background(initial = {}, fetcher = async () => response({ ok: true, row: 2 })) {
+  const saved = storage({ appsScriptUrl: scriptUrl, ...initial });
+  const calls = [], injections = [];
+  let listener;
   const ctx = vm.createContext({ URL, Date, AbortSignal, chrome: {
-    storage: { local: saved.api }, runtime: { id: "test-extension", onMessage: { addListener() {} } },
-    tabs: { async get() { return { url: page.url }; } },
-    scripting: { async executeScript() { return [{ result: page }]; } }
-  }, async fetch(url, options) { const call = { url, headers: options.headers, body: JSON.parse(options.body) }; calls.push(call); return fetcher(call, saved); } });
-  ctx.importScripts = (name) => vm.runInContext(source(`extension/${name}`), ctx);
+    storage: { local: saved.api },
+    runtime: { id: "test-extension", onMessage: { addListener(fn) { listener = fn; } } },
+    tabs: { async get() { return { id: 1, url: page.url }; } },
+    scripting: { async executeScript(options) { injections.push(plain(options)); return [{ result: page }]; } }
+  }, async fetch(url, options) {
+    calls.push({ url, headers: options.headers, body: JSON.parse(options.body), redirect: options.redirect });
+    return fetcher();
+  } });
   vm.runInContext(source("extension/background.js"), ctx);
-  return { ctx, saved, calls };
+  return { ctx, saved, calls, injections, listener };
 }
-const payload = { temperature: 0, messages: [{ role: "system", content: "Extract JSON" }, { role: "user", content: "Job" }], max_tokens: 64 };
 
-test("direct OpenAI uses Bearer and max_completion_tokens", async () => {
+test("structured job fields take priority and preserve explicit salary, location, and date", () => {
   const env = background();
-  await env.ctx.requestChat(env.saved.data, payload);
-  const call = env.calls[0];
-  assert.equal(call.url, "https://api.openai.com/v1/chat/completions");
-  assert.equal(call.headers.Authorization, "Bearer test-key");
-  assert.equal(call.body.model, "gpt-4.1-mini");
-  assert.equal(call.body.max_completion_tokens, 64);
-  assert.equal(call.body.max_tokens, undefined);
-  assert.equal(call.body.temperature, 0);
+  const fields = env.ctx.extractJobData({ ...page, jobPostings: [{
+    title: "Structured Analyst", hiringOrganization: { name: "Structured Company" },
+    jobLocation: [{ address: { addressLocality: "Jakarta", addressRegion: "DKI", addressCountry: "ID" } }],
+    jobLocationType: "TELECOMMUTE", baseSalary: "Rp 8–10 juta", validThrough: "2026-11-08T23:59:00+07:00",
+    description: "  Analyze data.   SQL required. "
+  }] });
+  assert.deepEqual(plain(fields), { nama_pekerjaan: "Structured Analyst", perusahaan: "Structured Company",
+    lokasi: "Jakarta, DKI, ID", tipe_kerja: "Remote", range_gaji: "Rp 8–10 juta",
+    deadline: "2026-11-08", deskripsi: "Analyze data. SQL required." });
 });
 
-test("OpenAI reasoning routes omit unsupported temperature", async () => {
-  for (const modelRoute of ["openai:o3-mini", "openai:gpt-5-mini"]) {
-    const env = background({ modelRoute });
-    await env.ctx.requestChat(env.saved.data, payload);
-    assert.equal(env.calls[0].body.temperature, undefined);
-  }
+test("site fields and metadata supply available fallback data", () => {
+  const env = background();
+  const fields = env.ctx.extractJobData({ ...page, meta: { ogTitle: "Meta Role", ogSiteName: "Meta Company",
+    description: "Meta description" }, siteFields: { title: "Site Role", company: null, location: "Jakarta",
+    workType: "work from office", salary: "Negotiable", deadline: "2026-11-01" } });
+  assert.equal(fields.nama_pekerjaan, "Site Role");
+  assert.equal(fields.perusahaan, "Meta Company");
+  assert.equal(fields.tipe_kerja, "WFO");
+  assert.equal(fields.range_gaji, "Negotiable");
+  assert.equal(fields.deskripsi, "Meta description");
 });
 
-test("Anthropic uses native headers, separate system, and normalizes text blocks", async () => {
-  const env = background({ modelRoute: "anthropic:claude-sonnet-4-6" }, async () => response({ type: "message", content: [{ type: "thinking", thinking: "private" }, { type: "text", text: "OK" }] }));
-  assert.equal((await env.ctx.requestChat(env.saved.data, payload)).content, "OK");
-  const call = env.calls[0];
-  assert.equal(call.url, "https://api.anthropic.com/v1/messages");
-  assert.equal(call.headers["x-api-key"], "test-key");
-  assert.equal(call.headers["anthropic-version"], "2023-06-01");
-  assert.equal(call.headers["anthropic-dangerous-direct-browser-access"], "true");
-  assert.equal(call.headers.Authorization, undefined);
-  assert.equal(call.body.system, "Extract JSON");
-  assert.deepEqual(plain(call.body.messages), [{ role: "user", content: "Job" }]);
-  assert.equal(call.body.max_tokens, 64);
-  assert.equal(call.body.temperature, undefined);
+test("missing fields, numeric salary, and ambiguous or invalid dates are not invented", () => {
+  const env = background();
+  const fields = env.ctx.extractJobData({ ...page, title: "", siteFields: {}, jobPostings: [{
+    baseSalary: { value: { minValue: 100, maxValue: 200 } }, validThrough: "2026-02-30"
+  }] });
+  assert.deepEqual(plain(fields), { nama_pekerjaan: "", perusahaan: "", lokasi: "", tipe_kerja: "",
+    range_gaji: "", deadline: "", deskripsi: "" });
+  assert.equal(env.ctx.normalizeSourceDeadline("3 hari lagi"), "");
+  assert.equal(env.ctx.normalizeWorkType("On-site"), "On-site");
+  assert.equal(env.ctx.normalizeWorkType("WFO"), "WFO");
 });
 
-test("OpenRouter and another compatible API receive their own route and token field", async () => {
-  for (const modelRoute of ["apodex/apodex-1.1-mini:free", "https://api.example.com/v1#vendor/model"]) {
-    const env = background({ modelRoute });
-    await env.ctx.requestChat(env.saved.data, payload);
-    assert.equal(env.calls[0].body.max_tokens, 64);
-    assert.equal(env.calls[0].body.max_completion_tokens, undefined);
-    assert.equal(env.calls[0].headers.Authorization, "Bearer test-key");
-    assert.equal(env.calls[0].url.includes("#"), false);
-  }
+test("source descriptions are cleaned and limited to 1500 characters", () => {
+  const env = background();
+  const fields = env.ctx.extractJobData({ ...page, siteFields: { description: "long text ".repeat(500) } });
+  assert.equal(fields.deskripsi.length, 1500);
 });
 
-test("HTML failures are concise and explain endpoint mistakes", async () => {
-  const env = background({}, async () => response("<!DOCTYPE html><html><head>" + "large page".repeat(1000), 404));
-  await assert.rejects(() => env.ctx.requestChat(env.saved.data, payload), (error) => {
-    assert.match(error.message, /OpenAI · HTTP 404/);
-    assert.match(error.message, /HTML/);
-    assert.equal(error.message.includes("<!DOCTYPE"), false);
-    assert.ok(error.message.length < 500);
-    return true;
-  });
-});
-
-test("provider errors retain actions and detail while hiding the key", async () => {
-  const env = background({}, async () => response({ error: { message: "Invalid key test-key" } }, 401));
-  await assert.rejects(() => env.ctx.requestChat(env.saved.data, payload), (error) => {
-    assert.match(error.message, /Kunci API tidak valid/);
-    assert.match(error.message, /Invalid key/);
-    assert.equal(error.message.includes("test-key"), false);
-    return true;
-  });
-});
-
-test("errors embedded in HTTP 200 remain failures", async () => {
-  const env = background({}, async () => response({ error: { code: 429, message: "Rate limited" } }));
-  await assert.rejects(() => env.ctx.requestChat(env.saved.data, payload), /kode 429[\s\S]*kuota/);
-});
-
-test("malformed JSON, incorrect response shapes, and network failures stay clear", async () => {
-  for (const fetcher of [async () => response("not JSON"), async () => response({ choices: [] }), async () => { throw new Error("offline"); }]) {
-    const env = background({}, fetcher);
-    await assert.rejects(() => env.ctx.requestChat(env.saved.data, payload), /format|choices|jaringan/);
-  }
-});
-
-test("connection success unlocks AI but a settings change during a check cannot unlock it", async () => {
-  const env = background({ aiVerified: true, mode: "ai" });
-  const result = await env.ctx.checkAiConnection();
-  assert.equal(result.provider, "OpenAI");
-  assert.equal(env.saved.data.aiVerified, true);
-  assert.equal(env.saved.data.mode, "manual");
-  const changed = background({}, async (call, saved) => { saved.data.modelRoute = "anthropic:claude-sonnet-4-6"; return response(chatReply()); });
-  await assert.rejects(() => changed.ctx.checkAiConnection(), /berubah/);
-  assert.equal(changed.saved.data.aiVerified, false);
-});
-
-test("bad or empty AI output never posts a job to Sheets", async () => {
-  for (const content of ["", "not JSON", "```json\n{bad}\n```"] ) {
-    const env = background({ aiVerified: true, appsScriptUrl: "https://script.google.com/macros/s/test/exec" }, async () => response(chatReply(content)));
-    await assert.rejects(() => env.ctx.saveJob(1, "ai"), /kosong|JSON/);
-    assert.equal(env.calls.length, 1);
-    assert.equal(env.calls[0].url.includes("script.google.com"), false);
-  }
-});
-
-test("valid AI output posts extracted fields with the actual platform and source link", async () => {
-  const fields = { nama_pekerjaan: "Analyst", perusahaan: "Example", tipe_kerja: "remote", deadline: "2026-02-30", deskripsi: "Work. Requirements.", platform: "fake", link: "fake" };
-  const env = background({ aiVerified: true, appsScriptUrl: "https://script.google.com/macros/s/test/exec" }, async (call) => call.url.includes("script.google.com") ? response({ ok: true, row: 2 }) : response(chatReply(JSON.stringify(fields))));
-  assert.equal((await env.ctx.saveJob(1, "ai")).ok, true);
-  assert.equal(env.calls[0].body.max_completion_tokens, 2048);
-  assert.equal(env.calls[1].headers["Content-Type"], "text/plain");
-  assert.equal(env.calls[1].body.platform, "Glints");
-  assert.equal(env.calls[1].body.link, page.url);
-  assert.equal(env.calls[1].body.deadline, "");
-  assert.equal(env.calls[1].body.tipe_kerja, "Remote");
+test("saving reads the chosen tab and sends one row only to the configured spreadsheet endpoint", async () => {
+  const env = background();
+  assert.deepEqual(plain(await env.ctx.saveJob(1)), { ok: true, row: 2,
+    nama_pekerjaan: "Data Analyst", perusahaan: "Example" });
+  assert.deepEqual(env.injections, [{ target: { tabId: 1 }, files: ["content.js"] }]);
+  assert.equal(env.calls.length, 1);
+  assert.equal(env.calls[0].url, scriptUrl);
+  assert.equal(env.calls[0].headers["Content-Type"], "text/plain");
+  assert.equal(env.calls[0].redirect, "follow");
+  assert.equal(env.calls[0].body.link, page.url);
+  assert.equal(env.calls[0].body.platform, "Glints");
 });
 
 test("missing tab URL metadata can still save using the URL extracted from the page", async () => {
   for (const url of [undefined, ""]) {
-    const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" }, async () => response({ ok: true, row: 2 }));
+    const env = background();
     env.ctx.chrome.tabs.get = async () => ({ id: 1, url });
-    assert.equal((await env.ctx.saveJob(1, "manual")).ok, true);
+    assert.equal((await env.ctx.saveJob(1)).ok, true);
     assert.equal(env.calls.length, 1);
     assert.equal(env.calls[0].body.link, page.url);
-    assert.equal(env.calls[0].body.platform, "Glints");
   }
 });
 
 test("restricted URLs remain blocked before saving, including URLs returned by extraction", async () => {
-  for (const url of ["chrome://extensions/", "https://chromewebstore.google.com/detail/example"]) {
-    const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
-    let injected = false;
+  for (const url of ["chrome://extensions/", "file:///local/page.html",
+    "https://chromewebstore.google.com/detail/example"]) {
+    const env = background();
     env.ctx.chrome.tabs.get = async () => ({ id: 1, url });
-    env.ctx.chrome.scripting.executeScript = async () => { injected = true; return [{ result: page }]; };
-    await assert.rejects(() => env.ctx.saveJob(1, "manual"), /tidak boleh/);
-    assert.equal(injected, false);
+    await assert.rejects(() => env.ctx.saveJob(1), /tidak boleh/);
+    assert.equal(env.injections.length, 0);
     assert.equal(env.calls.length, 0);
   }
-  const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
+  const env = background();
   env.ctx.chrome.tabs.get = async () => ({ id: 1 });
   env.ctx.chrome.scripting.executeScript = async () => [{ result: { ...page, url: "chrome://settings/" } }];
-  await assert.rejects(() => env.ctx.saveJob(1, "manual"), /tidak boleh/);
+  await assert.rejects(() => env.ctx.saveJob(1), /tidak boleh/);
   assert.equal(env.calls.length, 0);
 });
 
 test("missing injection permission gives recovery steps and cannot post a job", async () => {
-  const env = background({ appsScriptUrl: "https://script.google.com/macros/s/test/exec" });
+  const env = background();
   env.ctx.chrome.tabs.get = async () => ({ id: 1 });
   env.ctx.chrome.scripting.executeScript = async () => { throw new Error("Missing host permission"); };
-  await assert.rejects(() => env.ctx.saveJob(1, "manual"), (error) => {
+  await assert.rejects(() => env.ctx.saveJob(1), (error) => {
     assert.match(error.message, /ikon Lamaran Tracker di toolbar/);
     assert.match(error.message, /refresh halaman/);
     assert.match(error.message, /Missing host permission/);
@@ -232,48 +141,109 @@ test("missing injection permission gives recovery steps and cannot post a job", 
   assert.equal(env.calls.length, 0);
 });
 
+test("invalid destination URLs and missing tab IDs stop before injection", async () => {
+  for (const appsScriptUrl of ["", "https://example.com/exec", "https://script.google.com/macros/s/test/dev"]) {
+    const env = background({ appsScriptUrl });
+    await assert.rejects(() => env.ctx.saveJob(1), /URL/);
+    assert.equal(env.injections.length, 0);
+  }
+  await assert.rejects(() => background().ctx.saveJob(undefined), /Tab aktif/);
+});
+
+test("empty or missing page results do not produce an empty spreadsheet row", async () => {
+  for (const result of [null, { ...page, hasPageText: false, siteFields: {} }]) {
+    const env = background();
+    env.ctx.chrome.scripting.executeScript = async () => [{ result }];
+    await assert.rejects(() => env.ctx.saveJob(1), /tidak mengembalikan|Halaman kosong/);
+    assert.equal(env.calls.length, 0);
+  }
+});
+
+test("invalid web app responses never report success", async () => {
+  for (const reply of [response("<html>login</html>"), response({ ok: false, error: "Write failed" }),
+    response({ ok: true, row: 1 }), response({ error: "Unavailable" }, 503)]) {
+    const env = background({}, async () => reply);
+    await assert.rejects(() => env.ctx.saveJob(1), /JSON|Write failed|valid|HTTP 503/);
+    assert.equal(env.calls.length, 1);
+  }
+});
+
+test("network failures and timeouts identify the spreadsheet request", async () => {
+  for (const [name, expected] of [["TypeError", /jaringan ke Apps Script/], ["TimeoutError", /25 detik/]]) {
+    const env = background({}, async () => { const error = new Error("offline"); error.name = name; throw error; });
+    await assert.rejects(() => env.ctx.saveJob(1), expected);
+    assert.equal(env.calls.length, 1);
+  }
+});
+
+test("background accepts only the supported save message from this extension", async () => {
+  const env = background();
+  assert.equal(env.listener({ type: "UNKNOWN" }, { id: "test-extension" }, () => {}), false);
+  assert.equal(env.listener({ type: "SAVE_JOB", tabId: 1 }, { id: "another-extension" }, () => {}), false);
+  const result = await new Promise((resolve) => {
+    assert.equal(env.listener({ type: "SAVE_JOB", tabId: 1 }, { id: "test-extension" }, resolve), true);
+  });
+  assert.equal(result.ok, true);
+  assert.equal(env.calls.length, 1);
+});
+
 function popup(initial) {
   const saved = storage(initial);
-  const events = [];
-  const nodes = {};
-  for (const id of ["api-key", "model-route", "route-info", "apps-script-url", "ai-mode", "manual-mode", "mode-help", "check-connection", "connection-status", "save-job", "save-status"]) {
-    nodes[id] = { value: "", dataset: {}, textContent: "", listeners: {}, attrs: {}, addEventListener(type, fn) { this.listeners[type] = fn; }, setAttribute(key, value) { this.attrs[key] = value; } };
+  const events = [], nodes = {};
+  for (const id of ["apps-script-url", "save-job", "save-status"]) {
+    nodes[id] = { value: "", dataset: {}, textContent: "", listeners: {},
+      addEventListener(type, fn) { this.listeners[type] = fn; } };
   }
-  const ctx = vm.createContext({ URL, document: { getElementById: (id) => nodes[id] }, chrome: {
-    storage: { local: saved.api }, permissions: { async request(value) { events.push(value); return true; } },
-    runtime: { async sendMessage(value) { events.push(value); await saved.api.set({ aiVerified: true }); return { ok: true, provider: "Anthropic" }; } }
+  const ctx = vm.createContext({ document: { getElementById: (id) => nodes[id] }, chrome: {
+    storage: { local: saved.api }, tabs: { async query() { return [{ id: 1 }]; } },
+    runtime: { async sendMessage(message) {
+      events.push({ message: plain(message), stored: { ...saved.data } });
+      return { ok: true, nama_pekerjaan: "Analyst", perusahaan: "Example" };
+    } }
   } });
-  vm.runInContext(source("extension/ai-route.js"), ctx);
   vm.runInContext(source("extension/popup.js"), ctx);
   return { saved, nodes, events, ctx };
 }
 
-test("popup migration preserves key/Sheets URL and requires rechecking the corrected route", async () => {
-  const env = popup({ apiKey: "old-key", baseUrl: "https://openrouter.ai/apodex/apodex-1.1-mini:free", model: "Apodex", appsScriptUrl: "old-url", aiVerified: true, mode: "ai" });
+test("popup preserves the spreadsheet URL and cleans up retired settings", async () => {
+  const env = popup({ appsScriptUrl: scriptUrl, oldSecret: "retired-secret", oldRoute: "retired-route",
+    lastChoice: "retired-choice" });
   await tick();
-  assert.equal(env.nodes["model-route"].value, "openrouter:apodex/apodex-1.1-mini:free");
-  assert.equal(env.saved.data.apiKey, "old-key");
-  assert.equal(env.saved.data.appsScriptUrl, "old-url");
-  assert.equal(env.saved.data.baseUrl, undefined);
-  assert.equal(env.saved.data.model, undefined);
-  assert.equal(env.saved.data.aiVerified, false);
-  assert.equal(env.nodes["ai-mode"].disabled, true);
+  assert.deepEqual(env.saved.data, { appsScriptUrl: scriptUrl });
+  assert.equal(env.nodes["apps-script-url"].value, scriptUrl);
+  assert.equal(env.nodes["save-job"].disabled, false);
 });
 
-test("popup requests the resolved provider permission during the click and resets after edits", async () => {
-  const env = popup({ apiKey: "key", modelRoute: "anthropic:claude-sonnet-4-6" });
+test("popup saves the latest URL before sending the single save action", async () => {
+  const env = popup({ appsScriptUrl: scriptUrl });
   await tick();
-  const check = env.nodes["check-connection"].listeners.click();
-  assert.deepEqual(plain(env.events[0]), { origins: ["https://api.anthropic.com/*"] });
-  await check;
-  assert.equal(env.nodes["ai-mode"].disabled, false);
-  env.nodes["ai-mode"].listeners.click();
-  env.nodes["model-route"].value = "openai:gpt-4.1-mini";
-  env.nodes["model-route"].listeners.input();
+  const updated = "https://script.google.com/macros/s/updated/exec";
+  env.nodes["apps-script-url"].value = updated;
+  env.nodes["apps-script-url"].listeners.input();
+  await env.nodes["save-job"].listeners.click();
+  assert.equal(env.events.length, 1);
+  assert.deepEqual(env.events[0].message, { type: "SAVE_JOB", tabId: 1 });
+  assert.equal(env.events[0].stored.appsScriptUrl, updated);
+  assert.equal(env.nodes["save-status"].textContent, "Tersimpan: Analyst - Example");
+  assert.equal(env.nodes["save-status"].dataset.kind, "success");
+});
+
+test("popup needs a destination and stops saving if settings cannot be persisted", async () => {
+  const empty = popup({});
   await tick();
-  assert.equal(env.saved.data.aiVerified, false);
-  assert.equal(env.saved.data.mode, "manual");
-  assert.match(env.nodes["route-info"].textContent, /OpenAI/);
+  await empty.nodes["save-job"].listeners.click();
+  assert.match(empty.nodes["save-status"].textContent, /Isi URL/);
+  assert.equal(empty.events.length, 0);
+  const env = popup({ appsScriptUrl: scriptUrl });
+  await tick();
+  env.saved.api.set = async () => { throw new Error("Storage full"); };
+  env.nodes["apps-script-url"].value = scriptUrl + "?updated";
+  env.nodes["apps-script-url"].listeners.input();
+  await tick();
+  assert.equal(env.nodes["save-job"].disabled, true);
+  await env.nodes["save-job"].listeners.click();
+  assert.equal(env.events.length, 0);
+  assert.match(env.nodes["save-status"].textContent, /Storage full/);
 });
 
 // Minimal stateful Apps Script doubles: values/formulas, style, filters, rules, and banding.
@@ -463,13 +433,18 @@ test("terminal status freezes waiting days and reopening restores the formula", 
   assert.match(sheet.cell(2, 12).formula, /^=IF/);
 });
 
-test("manifest keeps content injection on demand and bundles the shared resolver", () => {
+test("manifest and popup expose only the spreadsheet save flow", () => {
   const manifest = JSON.parse(source("extension/manifest.json"));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.version, "1.2.0");
   assert.equal(manifest.content_scripts, undefined);
+  assert.equal(manifest.optional_host_permissions, undefined);
   assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage"]);
-  assert.match(source("extension/background.js"), /importScripts\("ai-route.js"\)/);
-  assert.match(source("extension/popup.html"), /src="ai-route.js"/);
-  assert.equal(source("extension/popup.html").includes('id="base-url"'), false);
-  assert.equal(source("extension/popup.html").includes('id="model"'), false);
+  assert.deepEqual(manifest.host_permissions, ["https://script.google.com/*", "https://script.googleusercontent.com/*"]);
+  assert.deepEqual(fs.readdirSync(path.join(root, "extension")).sort(),
+    ["background.js", "content.js", "manifest.json", "popup.css", "popup.html", "popup.js"]);
+  const html = source("extension/popup.html");
+  assert.equal((html.match(/<input\b/g) || []).length, 1);
+  assert.equal((html.match(/<button\b/g) || []).length, 1);
+  assert.match(html, /src="popup.js"/);
 });

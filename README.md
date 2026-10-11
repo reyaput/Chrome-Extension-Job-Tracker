@@ -1,18 +1,16 @@
 # Lamaran Tracker
 
-Chrome Extension Manifest V3 untuk mengambil data halaman lowongan yang sedang dibuka dan langsung menambahkan satu baris ke Google Sheets. Mode **Manual** mengambil data tanpa AI. Mode **AI** mendukung OpenAI langsung, Anthropic langsung, OpenRouter, serta endpoint lain yang kompatibel dengan Chat Completions.
+Chrome Extension Manifest V3 untuk mengambil data halaman lowongan yang sedang dibuka dan langsung menambahkan satu baris ke Google Sheets. Cukup isi URL tujuan lalu klik Simpan ke Spreadsheet.
 
 Tidak perlu npm, framework, build, atau bundler. Pasang folder `extension/` melalui **Load unpacked**.
 
 ## Jika sudah memasang versi lama
 
-1. Ganti seluruh kode pada editor Apps Script dengan isi `apps-script/Code.gs` terbaru, lalu simpan.
-2. Jalankan **setupSheet** kembali untuk menerapkan tampilan baru dan menyesuaikan tinggi baris dengan deskripsi pada data yang sudah ada. Data dan rumus yang terisi tidak dihapus. Header harus tetap sama.
-3. Pilih **Deploy > Manage deployments > Edit > New version > Deploy** agar baris berikutnya ikut mendapat tampilan baru. URL `/exec` tetap sama jika deployment yang sama diperbarui.
-4. Di `chrome://extensions`, klik **Reload / Muat ulang** pada Lamaran Tracker, lalu buka kembali popup.
-5. Pengaturan AI kini cukup **Kunci API** dan **Rute model**. URL web app dan kunci lama tetap disimpan. Rute lama akan dimigrasikan jika dapat dikenali; klik **Cek Koneksi** kembali.
+1. Perbarui folder `extension` dengan versi terbaru dari proyek ini.
+2. Di `chrome://extensions`, klik **Reload / Muat ulang** pada Lamaran Tracker, lalu buka kembali popup lewat ikon di toolbar.
+3. Popup kini hanya berisi URL web app dan tombol Simpan. URL tujuan lama tetap tersimpan; pengaturan yang sudah tidak dipakai dibersihkan otomatis saat popup dibuka.
 
-Contoh masalah versi lama: `https://openrouter.ai/apodex/apodex-1.1-mini:free` adalah halaman model, bukan endpoint API. Sekarang URL tersebut dapat ditempel ke **Rute model** dan akan diarahkan ke endpoint API OpenRouter yang benar.
+Jika spreadsheet belum memakai format terbaru dan tinggi baris otomatis, ganti kode Apps Script dengan isi `apps-script/Code.gs`, jalankan **setupSheet**, lalu pilih **Deploy > Manage deployments > Edit > New version > Deploy**. Data dan rumus yang terisi dipertahankan; header harus tetap sama. URL `/exec` tetap sama jika deployment yang sama diperbarui.
 
 ## File proyek
 
@@ -21,9 +19,8 @@ extension/
   manifest.json       Izin dan konfigurasi ekstensi
   popup.html          Tampilan pengaturan dan tombol simpan
   popup.css           Gaya tampilan
-  popup.js            Pengaturan lokal, izin AI, dan status hasil
-  ai-route.js         Penentuan penyedia, endpoint, dan ID dari rute model
-  background.js       Injeksi, panggilan AI, dan pengiriman ke Apps Script
+  popup.js            URL tujuan dan status hasil
+  background.js       Injeksi, ekstraksi data, dan pengiriman ke Apps Script
   content.js          Pengambilan metadata, JSON-LD, dan detail lowongan
 apps-script/
   Code.gs             Setup spreadsheet, penerimaan data, dan trigger Status
@@ -87,46 +84,21 @@ Jika opsi **Anyone** tidak tersedia, akun/organisasi mungkin membatasi deploymen
 
 Biarkan folder ekstensi tetap berada di lokasi pemasangan. Jika dipindahkan, muat ulang dari lokasi barunya melalui **Load unpacked**.
 
-## 4. Gunakan mode Manual
+## 4. Simpan lowongan
 
 1. Buka halaman detail lowongan dan tunggu sampai kontennya tampil. Pada LinkedIn hasil pencarian, pilih lowongan agar panel detail kanan terbuka.
-2. Klik ikon Lamaran Tracker dan pilih **Manual**.
+2. Klik ikon Lamaran Tracker di toolbar Chrome.
 3. Pastikan URL web app sudah terisi.
 4. Klik **Simpan ke Spreadsheet**. Biarkan popup terbuka untuk melihat hasilnya.
 5. Jika berhasil, tampil **Tersimpan: Nama Pekerjaan - Perusahaan**. Buka tab **Lamaran Tracker** untuk memeriksa baris baru.
 
-Manual berarti pengambilan otomatis **tanpa AI**, bukan formulir untuk mengetik data. Prioritas sumbernya adalah JSON-LD JobPosting, field khusus situs, lalu meta/judul halaman untuk judul dan perusahaan. Informasi yang tidak ditemukan dikosongkan. Deskripsi asli dibersihkan dan dipotong maksimal 1.500 karakter.
+Ekstensi mengambil data otomatis dari JSON-LD JobPosting, field khusus situs, lalu meta/judul halaman untuk judul dan perusahaan. Informasi yang tidak ditemukan dikosongkan. Deskripsi asli dibersihkan dan dipotong maksimal 1.500 karakter.
 
 Setiap klik simpan menambahkan baris baru. Tidak ada preview atau pemeriksaan duplikat. URL halaman disimpan lengkap, termasuk seluruh parameter.
 
-## 5. Siapkan mode AI (opsional)
+URL tujuan tersimpan di `chrome.storage.local`, bukan sinkronisasi Chrome. Data lowongan dikirim ke web app Apps Script yang Anda isi untuk ditulis ke spreadsheet.
 
-1. Isi **Kunci API** milik penyedia yang ingin dipakai.
-2. Isi **Rute model** sesuai tabel berikut. Tidak ada isian URL dasar atau Nama model terpisah.
-3. Klik **Cek Koneksi**. Chrome akan meminta izin akses ke origin endpoint API yang ditentukan rute. Setujui izin agar koneksi dapat diperiksa.
-4. Setelah tampil **Koneksi berhasil**, pilih **AI**.
-5. Buka detail lowongan, lalu klik **Simpan ke Spreadsheet**.
-
-| Penyedia | Contoh Rute model | Format request |
-| --- | --- | --- |
-| OpenAI langsung | `openai:gpt-4.1-mini` | Chat Completions ke `api.openai.com` |
-| Anthropic langsung | `anthropic:claude-sonnet-4-6` | Messages native ke `api.anthropic.com` |
-| OpenRouter | `openrouter:apodex/apodex-1.1-mini:free` | Chat Completions ke `openrouter.ai/api/v1` |
-| API kompatibel OpenAI lainnya | `https://alamat-api/v1#id-model` | Chat Completions dengan kunci Bearer |
-
-Contoh di atas menunjukkan format rute; akses/ketersediaan model mengikuti akun dan penyedia. Gunakan ID model API yang tepat, bukan nama tampilannya.
-
-- ID seperti `apodex/apodex-1.1-mini:free`, `openai/gpt-4.1-mini`, atau `anthropic/claude-sonnet-4.6` **tanpa penanda titik dua** mengikuti format katalog OpenRouter dan dikirim melalui OpenRouter. Gunakan kunci OpenRouter untuk bentuk ini.
-- Untuk memanggil penyedia langsung, gunakan penanda **`openai:`** atau **`anthropic:`**. ID singkat `gpt-...`/`o3-...` dan `claude-...` juga dikenali sebagai penyedia langsung.
-- URL halaman model OpenRouter, seperti `https://openrouter.ai/apodex/apodex-1.1-mini:free`, juga diterima. Kode mengambil ID dari URL dan memakai endpoint API yang benar.
-- Untuk API lain, bagian setelah **`#`** adalah ID model dan tidak dikirim sebagai bagian URL. Bentuk endpoint lengkap seperti `https://alamat-api/v1/chat/completions#id-model` juga diterima. Jika yang diisi URL dasar, kode menambahkan `/chat/completions`.
-- `https://api.anthropic.com/v1/messages#claude-sonnet-4-6` memakai format native Anthropic. Penyedia/proxy lain harus mendukung format Chat Completions dan autentikasi Bearer.
-
-Mode AI tetap terkunci jika pemeriksaan gagal. Pesan error menampilkan penyedia, status HTTP, rute, penjelasan tindakan, dan pesan asli penyedia yang relevan. Halaman HTML tidak ditumpahkan ke popup. Jika Kunci API atau Rute model diubah, verifikasi dibatalkan dan mode kembali ke Manual; klik **Cek Koneksi** kembali.
-
-Semua isian dan pilihan mode terakhir tersimpan di `chrome.storage.local`, bukan sinkronisasi Chrome. Kunci API tersimpan lokal tanpa enkripsi tambahan; kolom kata sandi hanya menyembunyikan tampilannya. Dalam mode AI, metadata dan teks lowongan dikirim ke penyedia yang Anda isi. Cek koneksi dan ekstraksi memakai API penyedia sehingga dapat menggunakan kuota/biaya penyedia tersebut.
-
-## 6. Status dan hitungan hari
+## 5. Status dan hitungan hari
 
 - Baris baru mendapat tanggal simpan dan tanggal dilamar hari ini, serta Status **Applied**.
 - Dropdown Status: Applied, Screening, Interview HR, Interview User, Offer, Rejected.
@@ -145,7 +117,7 @@ Status mendapat warna berbeda yang mengikuti perubahan nilainya; deadline dekat/
 
 Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawah data tidak ditampilkan. Baris baru otomatis memperoleh dropdown, format, warna tabel, dan rentang filter yang diperluas. Deskripsi memakai **Wrap / Bungkus teks**, dan tinggi baris otomatis menyesuaikan isinya setelah data disimpan. Deskripsi panjang mendapatkan baris lebih tinggi agar teks tampil penuh. Menjalankan `setupSheet()` kembali menyesuaikan baris lama; mengedit atau paste deskripsi di kolom N juga menghitung ulang tinggi baris terkait.
 
-## 7. Mengatasi masalah pemasangan
+## 6. Mengatasi masalah pemasangan
 
 | Gejala | Langkah pemeriksaan |
 | --- | --- |
@@ -153,22 +125,14 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 | Respons Apps Script bukan JSON | Periksa URL `/exec`, akses **Anyone**, dan **Execute as: Me**. Respons halaman login atau HTML tidak dapat dipakai sebagai hasil simpan. |
 | Error menyuruh menjalankan setupSheet | Jalankan `setupSheet` dari editor yang dibuka melalui spreadsheet tujuan. |
 | Header tidak cocok | Periksa 14 header dan pastikan sel baris 1 setelah N kosong. Setup berhenti agar data tidak tertimpa. |
-| Mode AI nonaktif | Isi Kunci API dan Rute model, lalu jalankan **Cek Koneksi** sampai berhasil. |
-| HTTP 401/403 dari AI | Kunci harus berasal dari penyedia yang ditentukan rute. Periksa izin kunci dan akses model; baca pesan penyedia pada popup. |
-| HTTP 402 dari AI | Periksa saldo atau batas pengeluaran akun penyedia. |
-| HTTP 404 dari AI | Periksa ID model lengkap dan apakah model tersedia pada penyedia yang dipilih. Untuk API lain, periksa alamat endpoint pada rute. |
-| HTTP 429 dari AI | Tunggu sebelum mengulang; periksa batas permintaan/kuota, termasuk batas model gratis. |
-| Respons HTML dari AI | URL yang dipakai bukan endpoint API. Gunakan penanda penyedia atau URL API dengan `#id-model`; URL halaman model OpenRouter otomatis dikenali. |
-| Izin AI ditolak | Klik **Cek Koneksi** kembali dan izinkan akses alamat penyedia. |
-| URL tab aktif tidak dapat dibaca (versi lama) | Muat ulang ekstensi ke versi 1.1.1 atau lebih baru. Buka halaman detail lowongan, tunggu selesai dimuat, lalu buka popup lewat ikon Lamaran Tracker di toolbar Chrome. |
+| URL tab aktif tidak dapat dibaca (versi lama) | Muat ulang ekstensi ke versi 1.2.0 atau lebih baru. Buka halaman detail lowongan, tunggu selesai dimuat, lalu buka popup lewat ikon Lamaran Tracker di toolbar Chrome. |
 | Chrome tidak bisa membaca halaman lowongan | Tutup popup, pilih tab lowongan, lalu buka kembali melalui ikon ekstensi. Setelah reload ekstensi, refresh halaman lowongan juga. Popup yang dibuka sebagai halaman biasa/Inspect dapat tidak memperoleh izin tab aktif. |
 | Halaman tidak dapat diambil | Gunakan halaman http/https biasa. Halaman `chrome://`, Web Store, PDF viewer, dan halaman lain yang dilindungi Chrome tidak bisa diinjeksi. |
 | Halaman kosong | Tunggu detail lowongan dimuat; untuk hasil pencarian, buka/pilih lowongan dahulu. |
 | Beberapa kolom kosong | Halaman mungkin tidak menyediakan JSON-LD/metadata atau selector belum cocok. Jangan anggap data kosong sebagai data yang berhasil ditemukan. |
-| JSON AI gagal di-parse | Tidak ada data yang dikirim ke Sheets. Periksa dukungan model terhadap instruksi JSON atau pilih Manual sendiri. |
 | Waktu tunggu/jaringan bermasalah | Periksa koneksi dan endpoint. Periksa spreadsheet sebelum mengulang karena request yang sudah diterima server bisa tetap selesai. |
 
-## 8. Memperbarui kode
+## 7. Memperbarui kode
 
 - **Ekstensi:** setelah mengubah file di folder `extension`, buka `chrome://extensions` lalu klik ikon **Reload / Muat ulang** pada Lamaran Tracker. Buka kembali popup.
 - **Apps Script:** tempel versi `Code.gs` terbaru dan simpan. Jalankan `setupSheet` jika perlu menerapkan format/dropdown, lalu pilih **Deploy > Manage deployments > Edit**, pilih **New version**, dan klik **Deploy**. Menyimpan kode saja tidak memperbarui deployment `/exec` yang sudah aktif.
@@ -185,28 +149,26 @@ Seluruh kandidat selector berada pada objek `SITE_SELECTORS` di bagian atas `ext
 | Kalibrr | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 | Indeed | Container/panel detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 
-Selector yang tidak ditemukan mengembalikan `null`. JSON-LD dan metadata tetap dapat dipakai; teks halaman menjadi sumber AI jika container detail tidak ditemukan.
+Selector yang tidak ditemukan mengembalikan `null`. JSON-LD dan metadata tetap dapat dipakai jika field khusus situs tidak ditemukan.
 
 ## Asumsi yang perlu dikonfirmasi
 
 1. `setupSheet()` merekam ID spreadsheet aktif ke Script Properties agar web app dapat membuka spreadsheet asal dengan `openById`. Pengguna tidak memasukkan ID/tautan spreadsheet. Ini diperlukan karena konteks spreadsheet aktif tidak tersedia saat skrip dijalankan sebagai web app; lihat [dokumentasi container-bound Google](https://developers.google.com/apps-script/guides/bound).
-2. Jika terdapat beberapa JobPosting, mode Manual memakai objek pertama yang ditemukan. Lokasi terstruktur dirangkai dari locality, region, country dengan koma; beberapa lokasi dipisah titik koma. Tidak ada pencocokan otomatis dengan ID lowongan pada URL.
-3. Deadline Manual hanya menerima tanggal ISO `yyyy-mm-dd` atau timestamp ISO dan memakai bagian tanggal sebagaimana tertulis. Tanggal relatif seperti “3 hari lagi” dan format lokal ambigu dikosongkan.
-4. Gaji terstruktur yang hanya berupa angka/objek numerik tidak dirangkai menjadi teks rentang pada mode Manual. Ekstensi memakai gaji teks JSON-LD jika tersedia, lalu field gaji situs, atau mengosongkan kolom.
+2. Jika terdapat beberapa JobPosting, ekstensi memakai objek pertama yang ditemukan. Lokasi terstruktur dirangkai dari locality, region, country dengan koma; beberapa lokasi dipisah titik koma. Tidak ada pencocokan otomatis dengan ID lowongan pada URL.
+3. Deadline hanya menerima tanggal ISO `yyyy-mm-dd` atau timestamp ISO dan memakai bagian tanggal sebagaimana tertulis. Tanggal relatif seperti “3 hari lagi” dan format lokal ambigu dikosongkan.
+4. Gaji terstruktur yang hanya berupa angka/objek numerik tidak dirangkai menjadi teks rentang. Ekstensi memakai gaji teks JSON-LD jika tersedia, lalu field gaji situs, atau mengosongkan kolom.
 5. Setiap request jaringan memiliki waktu tunggu 25 detik. Tidak ada pengiriman ulang otomatis. Penantian lock spreadsheet maksimal 10 detik.
 6. URL web app harus berasal dari `https://script.google.com/macros/.../exec`. Header yang berubah setelah setup juga ditolak saat penyimpanan agar data tidak ditulis pada susunan kolom berbeda.
 7. Nama perusahaan pada cadangan terakhir memakai `og:site_name` apa adanya. Metadata situs dapat berisi nama platform; judul halaman juga dapat memuat nama situs. Ekstensi tidak menebak atau memisahkan teks tersebut.
-8. Penyedia langsung ditentukan dengan penanda `openai:`/`anthropic:`; rute `organisasi/model` tanpa penanda memakai OpenRouter. Penyedia lain memakai URL API dengan `#id-model` dan wajib kompatibel dengan Chat Completions/Bearer. Tidak ada deteksi penyedia dari isi kunci API.
-9. Cek koneksi memakai batas 64 token dan ekstraksi 2.048 token keluaran. OpenAI langsung memakai `max_completion_tokens`; Anthropic memakai `max_tokens` serta system prompt terpisah. Temperature tidak dikirim ke Anthropic dan keluarga reasoning OpenAI yang menolak pengaturan tersebut; penyedia kompatibel lain menerima `temperature: 0` saat ekstraksi.
-10. Tinggi baris data mengikuti isi sel melalui `autoResizeRows`, setelah wrapping dan lebar kolom diterapkan; tidak ada tinggi tetap 64 piksel. Kolom kosong setelah N disembunyikan secara aman; kolom yang menyimpan data tetap dipertahankan. Aturan warna tracker diperbarui tanpa menumpuk duplikat.
+8. Tinggi baris data mengikuti isi sel melalui `autoResizeRows`, setelah wrapping dan lebar kolom diterapkan. Kolom kosong setelah N disembunyikan secara aman; kolom yang menyimpan data tetap dipertahankan. Aturan warna tracker diperbarui tanpa menumpuk duplikat.
 
 ## Keterbatasan dan pemeriksaan
 
-Pengambilan mencakup dokumen utama yang sudah tampil; tidak ada scroll otomatis, akses iframe, atau pembukaan halaman lanjutan. Perubahan tampilan situs, pembatasan akses, dan detail yang belum dimuat dapat menghasilkan data kosong atau teks halaman yang terlalu luas. Mode AI tidak menjamin ekstraksi akurat; periksa baris hasil di Sheets.
+Pengambilan mencakup dokumen utama yang sudah tampil; tidak ada scroll otomatis, akses iframe, atau pembukaan halaman lanjutan. Perubahan tampilan situs, pembatasan akses, dan detail yang belum dimuat dapat menghasilkan data kosong atau teks halaman yang terlalu luas. Periksa baris hasil di Sheets untuk memastikan informasi yang ditemukan sesuai lowongan.
 
 Jika popup ditutup saat menyimpan, pekerjaan yang sudah diterima tetap dijalankan background, tetapi hasil tidak ditampilkan ulang otomatis saat popup dibuka. Periksa spreadsheet sebelum klik simpan lagi. Penyelesaian tetap bergantung pada koneksi serta masa hidup service worker Chrome.
 
-Sebanyak 37 pengujian regresi lokal lulus. Pengujian memakai mock Chrome, API AI, dan Apps Script untuk memeriksa rute penyedia, format request/respons native, migrasi pengaturan, error HTTP/JSON/HTML, metadata URL tab yang kosong, penolakan halaman terbatas/izin injeksi, serta pengamanan data dan penerapan gaya spreadsheet. Sintaks seluruh file JavaScript dan `Code.gs`, serta manifest JSON, juga diperiksa. Deployment Google, izin Chrome yang nyata, API AI dengan kunci Anda, dan selector situs asli memerlukan pemeriksaan langsung setelah pemasangan.
+Pengujian regresi lokal memakai mock Chrome dan Apps Script untuk memeriksa ekstraksi data, penyimpanan satu baris, URL tab yang kosong, penolakan halaman terbatas/izin injeksi, pengaturan popup, respons web app, pengamanan data, serta penerapan gaya spreadsheet. Sintaks seluruh file JavaScript dan Code.gs, serta manifest JSON, juga diperiksa. Deployment Google, izin Chrome yang nyata, dan selector situs asli memerlukan pemeriksaan langsung setelah pemasangan.
 
 Jika Node.js tersedia, pemeriksaan sintaks dan regresi dapat dijalankan dari folder proyek melalui PowerShell:
 
@@ -219,4 +181,4 @@ node --test .\tests\verify.cjs
 
 Node.js hanya digunakan untuk pemeriksaan pengembangan, bukan syarat pemasangan atau penggunaan ekstensi.
 
-Rujukan implementasi: [izin opsional Chrome](https://developer.chrome.com/docs/extensions/reference/api/permissions), [deployment web app Google](https://developers.google.com/apps-script/guides/web), [format sheet Google](https://developers.google.com/apps-script/reference/spreadsheet/sheet), [penulisan nilai/teks pada Sheets](https://developers.google.com/apps-script/reference/spreadsheet/range), [OpenAI Docs: Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create), [OpenRouter API](https://openrouter.ai/docs/api_reference/overview), dan [error OpenRouter](https://openrouter.ai/docs/api_reference/errors-and-debugging).
+Rujukan implementasi: [izin activeTab Chrome](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab), [API tabs Chrome](https://developer.chrome.com/docs/extensions/reference/api/tabs), [deployment web app Google](https://developers.google.com/apps-script/guides/web), [format sheet Google](https://developers.google.com/apps-script/reference/spreadsheet/sheet), dan [penulisan nilai/teks pada Sheets](https://developers.google.com/apps-script/reference/spreadsheet/range).
