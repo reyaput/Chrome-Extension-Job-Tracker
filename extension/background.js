@@ -111,10 +111,13 @@ function extractPostFields(value) {
   }
   const companySentence = lines.map((line) => line.match(/^(.{2,100}?)\s+is\s+(?:still\s+)?(?:looking for|hiring|recruiting)\b/i)?.[1] || "").find(Boolean);
   const locationSentence = lines.map((line) => line.match(/\bjoin our (?:growing )?team in ([^.!?\n]{2,100})[.!?]?$/i)?.[1] || "").find(Boolean);
+  const hiringHeadline = lines.map((line) => line.match(/^(?:we(?:['’]re| are)|kami)\s+(?:#?hiring|membuka lowongan)\s*[|:]\s*(.+)$/i)?.[1] || "").find(Boolean);
+  // Beberapa posting kehilangan spasi/baris antara lokasi dan kalimat ajakan.
+  const labeledLocation = labeled("location|placement|penempatan|lokasi").replace(/\s*If\s+you(?:['’]re| are)\b.*$/i, "").trim();
   return {
-    nama_pekerjaan: labeled("job title|position|posisi|role|jabatan") || [...new Set(positions)].join("; ") || "Posting lowongan LinkedIn",
+    nama_pekerjaan: labeled("job title|position|posisi|role|jabatan") || [...new Set(positions)].join("; ") || hiringHeadline || "Posting lowongan LinkedIn",
     perusahaan: labeled("company|hiring company|perusahaan|nama perusahaan") || companySentence || "",
-    lokasi: labeled("location|placement|penempatan|lokasi") || locationSentence || "",
+    lokasi: labeledLocation || locationSentence || "",
     tipe_kerja: normalizeWorkType(labeled("work type|workplace|work arrangement|tipe kerja")),
     range_gaji: labeled("salary|compensation|gaji|range gaji"),
     deadline: normalizeSourceDeadline(labeled("application deadline|apply before|deadline|batas (?:akhir )?(?:lamaran|pendaftaran)")),
@@ -234,7 +237,7 @@ async function saveJob(tabId) {
   }
   const fields = extractJobData(page);
   if (!fields.nama_pekerjaan) {
-    throw new Error("Nama pekerjaan belum ditemukan pada halaman ini. Tunggu detail lowongan selesai dimuat dan buka halaman detailnya. Judul platform saja tidak akan disimpan sebagai lowongan.");
+    throw new Error("Judul lowongan belum berhasil dibaca oleh ekstensi. Coba refresh halaman lalu simpan lagi.");
   }
   const data = { ...fields, platform: getPlatform(page.hostname), link: page.url };
   const result = await postToSheet(appsScriptUrl, data);

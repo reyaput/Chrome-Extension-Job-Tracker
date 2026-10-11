@@ -1,7 +1,7 @@
 (async () => {
   "use strict";
 
-  // Microdata Kalibrr dan posting publik LinkedIn diperiksa pada 11 Oktober 2026.
+  // Halaman publik dan tab Chrome saat login diperiksa pada 11 Oktober 2026.
   // Selector situs/varian lainnya masih kandidat; field yang hilang tetap null.
   // LinkedIn: cari panel detail kanan, termasuk /jobs/search-results/?currentJobId=….
   const SITE_SELECTORS = {
@@ -36,8 +36,8 @@
       description: ["[data-testid='job-description']", "[data-test='job-description']"]
     },
     kalibrr: {
-      container: ["[itemscope][itemtype$='/JobPosting']", ".k-job-details", "[data-testid='job-details']"],
-      title: ["h1[itemprop='title']", ".k-job-details h1", "[data-testid='job-title']"],
+      container: ["[itemscope][itemtype$='/JobPosting']", "kb-job-page", ".k-job-details", "[data-testid='job-details']"],
+      title: ["h1[itemprop='title']", "kb-job-page h1", ".k-job-details h1", "[data-testid='job-title']"],
       company: [".k-job-details .company-name", "[data-testid='company-name']"],
       location: [".k-job-details .job-location", "[data-testid='job-location']"],
       workType: [".k-job-details .workplace-type", "[data-testid='workplace-type']"],
@@ -171,8 +171,30 @@
       validThrough: value(root, "validThrough"), description: readField(root, ["[itemprop~='description']"], "description") };
   }
 
-  const POST_ROOT_SELECTOR = ".main-feed-activity-card, .feed-shared-update-v2, [data-view-name='feed-full-update']";
-  const POST_TEXT_SELECTORS = ["[data-test-id='main-feed-activity-card__commentary']", ".update-components-text",
+  function readKalibrrFields(root, fields) {
+    const title = findElement(root, ["h1"]);
+    if (!title) return;
+    const header = title.parentElement;
+    fields.company ||= readField(header, ["a h2"], "company");
+    fields.location ||= readField(header, ["a[href*='/job-board/l/']", "span[itemtype$='/PostalAddress']"], "location");
+    const salaryRow = root.querySelector("[itemprop~='baseSalary']")?.closest("li");
+    fields.salary ||= readField(header, ["kb-salary-range"], "salary") || cleanText(salaryRow?.innerText) || null;
+    // Pada aplikasi jobseeker, heading dan blok deskripsi tidak punya itemprop.
+    // Batasi pembacaan pada bagian Job Description, bukan ringkasan/rekomendasi.
+    if (!fields.description) {
+      const heading = [...root.querySelectorAll("h2")].find((element) =>
+        /^(?:job description|deskripsi pekerjaan)$/i.test(cleanText(element.innerText)));
+      const parts = [];
+      for (let element = heading?.nextElementSibling; element && !/^H[1-6]$/.test(element.tagName); element = element.nextElementSibling) {
+        if (element.getClientRects().length) parts.push(element.innerText);
+      }
+      fields.description = cleanText(parts.join(" ")) || null;
+    }
+  }
+
+  const POST_ROOT_SELECTOR = ".main-feed-activity-card, .feed-shared-update-v2, [data-view-name='feed-full-update'], [componentkey^='update-card-focus']";
+  const POST_TEXT_SELECTORS = ["[id^='translatable-commentary-'] [data-testid='expandable-text-box']",
+    "[data-test-id='main-feed-activity-card__commentary']", ".update-components-text",
     ".feed-shared-text", ".feed-shared-update-v2__description-wrapper"];
 
   function readLinkedInPost(socialPosts) {
@@ -184,16 +206,38 @@
     const identityAttributes = ["data-activity-urn", "data-attributed-urn", "data-urn"];
     const roots = [...document.querySelectorAll(POST_ROOT_SELECTOR)].filter((element) => element.getClientRects().length &&
       !element.parentElement?.closest(POST_ROOT_SELECTOR));
-    const matches = (element) => identityAttributes.some((attr) =>
-      ids.some((postId) => element.getAttribute(attr)?.endsWith(`:${postId}`)));
+    const own = (root, selector) => [...root.querySelectorAll(selector)].filter((element) =>
+      element.closest(POST_ROOT_SELECTOR) === root &&
+      !element.closest(".feed-reshare-content, .feed-shared-mini-update-v2, [aria-label='Reshared post']") &&
+      !element.parentElement?.closest("a[href*='/feed/update/'], a[href*='/posts/']"));
+    const identities = (root) => {
+      const values = identityAttributes.map((attr) => root.getAttribute(attr)?.match(/:(\d+)$/)?.[1]);
+      // Tampilan login baru memakai componentkey dan ID commentary, tanpa data-urn.
+      // Tautan aksi mengidentifikasi activity; ID commentary mengidentifikasi share.
+      for (const anchor of own(root, "a[href*='/feed/update/']")) {
+        if (!anchor.closest("[id^='translatable-commentary-'], [componentkey^='comment']") &&
+            !anchor.querySelector("[id^='translatable-commentary-']")) {
+          values.push(anchor.getAttribute("href")?.match(/urn(?::|%3A)li(?::|%3A)(?:activity|share)(?::|%3A)(\d+)/i)?.[1]);
+        }
+      }
+      for (const commentary of own(root, "[id^='translatable-commentary-']")) {
+        if (!/contentUrnCommentUrn=(?!null)/.test(commentary.id)) values.push(commentary.id.match(/shareId=(\d+)/)?.[1]);
+      }
+      return values.filter(Boolean);
+    };
+    const matches = (element) => identities(element).some((identity) => ids.includes(identity));
     let root = roots.find(matches);
     // Launched post permalinks can use a share ID while the card uses an activity ID.
     // A single top-level card is safe; never choose the first of multiple feed cards.
-    if (!root && roots.length === 1 && (!ids.length || !identityAttributes.some((attr) => roots[0].hasAttribute(attr)))) root = roots[0];
+    if (!root && roots.length === 1 && (!ids.length || !identities(roots[0]).length)) root = roots[0];
     for (const selector of POST_TEXT_SELECTORS) {
       for (const element of root?.querySelectorAll(selector) || []) {
         const quoted = element.closest(".feed-reshare-content, .feed-shared-mini-update-v2, [aria-label='Reshared post']");
         if (element.closest(POST_ROOT_SELECTOR) !== root || quoted || !element.getClientRects().length) continue;
+        if (element.closest("a[href*='/feed/update/'], a[href*='/posts/']")) continue;
+        const commentary = element.closest("[id^='translatable-commentary-']");
+        if (commentary && /contentUrnCommentUrn=(?!null)/.test(commentary.id)) continue;
+        if (element.closest("[contenteditable='true'], [role='textbox'], [componentkey^='comment']")) continue;
         const text = (element.innerText || "").trim();
         if (text) return { text };
       }
@@ -222,16 +266,8 @@
     }
     if (!isLinkedInPost && container?.matches("[itemscope][itemtype$='/JobPosting']")) {
       jobPostings.push(readMicrodataJob(container));
-      if (config === SITE_SELECTORS.kalibrr) {
-        const title = findElement(root, ["h1[itemprop='title']"]);
-        const header = title?.parentElement;
-        siteFields.company ||= readField(header || root, ["a[href*='/c/'] h2"], "company");
-        // Gaji diambil dari teks yang tampil, termasuk mata uang dan periodenya.
-        const salaryRow = root.querySelector("[itemprop~='baseSalary']")?.closest("li");
-        siteFields.salary ||= cleanText(salaryRow?.innerText) || null;
-        siteFields.location ||= readField(header || root, ["span[itemtype$='/PostalAddress']"], "location");
-      }
     }
+    if (config === SITE_SELECTORS.kalibrr && container) readKalibrrFields(root, siteFields);
     return {
       url: location.href, hostname, title: document.title,
       pageKind: isLinkedInPost ? "linkedin-post" : "job",
@@ -255,7 +291,7 @@
     }
   }
   if (isLinkedInPost && !page.post.text) {
-    page.extractionError = "Teks posting LinkedIn belum terbaca. Buka posting lengkap, tampilkan teks dengan See more / Lihat selengkapnya, dan login jika diminta. Lowongan yang hanya ada di gambar belum bisa dibaca otomatis.";
+    page.extractionError = "Teks posting LinkedIn belum berhasil dibaca oleh ekstensi. Coba refresh halaman lalu simpan lagi.";
   }
   return page;
 })();

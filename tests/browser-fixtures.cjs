@@ -27,11 +27,48 @@ const currentPost = "Example Health Indonesia is still looking for professionals
   "📌 Available Positions:\nClinic Manager\nNurse\n\nApplication Deadline: Oct 31, 2026";
 const postExpected = { nama_pekerjaan: "Clinic Manager; Nurse", perusahaan: "Example Health Indonesia", lokasi: "Bekasi",
   deadline: "2026-10-31", tipe_kerja: "", range_gaji: "", deskripsi: currentPost.replace(/\s+/g, " ") };
+// These semantic attributes were observed in the user's signed-in Chrome tabs.
+// Text and company names are synthetic; generated class names are deliberately irrelevant.
+const newCommentary = (shareId, text, comment = "null") => `<div id="translatable-commentary-FeTranslationUrn(contentUrnCommentUrn=${comment}, contentUrnShareUrn=ContentUrnShareUrn(shareUrn=ShareUrn(shareId=${shareId})))">
+  <p><span data-testid="expandable-text-box">${text.replace(/\n/g, "<br>")}</span></p></div>`;
+const newLinkedInText = "📢 We’re Hiring | External Audit – Senior Associate / Assistant Manager\n" +
+  "Example Audit Indonesia is looking for professionals to join our External Audit team!\n\n" +
+  "Requirements:\nAccounting degree.\n\n📍 Location: IndonesiaIf you’re ready to join us, apply now!";
 const cases = [
   { name: "Kalibrr microdata, visible salary, and scoped description", url: "https://jobseeker.kalibrr.com/c/example/jobs/123/example",
     title: "Kalibrr: Where Jobs Find You", body: kalibrrBody, expected: kalibrrExpected },
   { name: "Kalibrr waits for delayed SPA rendering", url: "https://www.kalibrr.com/c/example/jobs/123/example",
     title: "Kalibrr: Where Jobs Find You", body: "<nav>Kalibrr</nav>", delayedBody: kalibrrBody, expected: kalibrrExpected },
+  { name: "Signed-in Kalibrr Angular page needs no JSON-LD or JobPosting scope", url: "https://jobseeker.kalibrr.com/c/example/jobs/123/example",
+    title: "Kalibrr: Where Jobs Find You", body: `<kb-job-page><div><div><h1>Account Support Coordinator Bandung</h1>
+      <span><a><h2>Example Recruitment</h2></a></span><ul><li><a href="/job-board/l/Bandung/1">Bandung, Indonesia</a></li>
+      <li><kb-salary-range><a href="/job-board/sgt/4600000/si/monthly/1">4,600,000.00 - 4,700,000.00 IDR / month</a></kb-salary-range></li>
+      <li><a href="/job-board/t/full-time/1">Full time</a></li></ul></div><p>Deadline of application is on 23 Oct</p></div>
+      <div><h2>Job Description</h2><div class="k-show-bullets"><ul><li>Coordinate accounts.</li><li>Prepare reports.</li></ul></div>
+      <h2>Minimum Qualifications</h2><div>Wrong extra section.</div></div></kb-job-page>
+      <aside><h1>Wrong recommended role</h1><kb-salary-range>Wrong salary</kb-salary-range></aside>`,
+    expected: { ...kalibrrExpected, lokasi: "Bandung, Indonesia", range_gaji: "4,600,000.00 - 4,700,000.00 IDR / month", deadline: "" } },
+  { name: "Signed-in LinkedIn componentkey card is identified by its activity permalink", url: "https://www.linkedin.com/feed/update/urn:li:activity:444/",
+    title: "Posting | LinkedIn", body: `<main id="workspace"><div role="listitem" componentkey="update-card-focusRandomFeedType_FEED_DETAIL" class="random-generated-class">
+      ${newCommentary(555, "Position: Wrong comment role", "CommentUrn(commentId=1)")}
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:999/">${newCommentary(999, "Position: Wrong quoted role")}</a>
+      ${newCommentary(333, newLinkedInText)}<a href="https://www.linkedin.com/jobs/view/888/">Wrong attached Analyst job</a>
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:444/">29 reactions</a></div></main>`,
+    expected: { nama_pekerjaan: "External Audit – Senior Associate / Assistant Manager", perusahaan: "Example Audit Indonesia",
+      lokasi: "Indonesia", range_gaji: "", deadline: "", tipe_kerja: "", deskripsi: newLinkedInText.replace(/\s+/g, " ") } },
+  { name: "Signed-in LinkedIn share alias uses commentary ID and excludes linked reshare first in DOM", url: "https://www.linkedin.com/posts/example-share-333-test/",
+    title: "Posting | LinkedIn", body: `<div role="listitem" componentkey="update-card-focusRandomFeedType_FEED_DETAIL">
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:999/">${newCommentary(999, "Position: Wrong old role\nApplication Deadline: 31 August 2026")}</a>
+      ${newCommentary(333, currentPost)}</div>`, expected: postExpected },
+  { name: "A quoted post cannot supply missing primary commentary", url: "https://www.linkedin.com/feed/update/urn:li:activity:444/",
+    title: "Posting | LinkedIn", body: `<div role="listitem" componentkey="update-card-focusRandomFeedType_FEED_DETAIL">
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:999/">${newCommentary(999, "Position: Wrong old role")}</a>
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:444/">Like</a></div>`, expectedError: "Teks posting LinkedIn belum berhasil dibaca" },
+  { name: "A quoted permalink cannot make an unrelated component card match", url: "https://www.linkedin.com/feed/update/urn:li:activity:444/",
+    title: "Posting | LinkedIn", body: `<div role="listitem" componentkey="update-card-focusRandomFeedType_FEED_DETAIL">
+      <a href="https://www.linkedin.com/feed/update/urn:li:activity:444/">${newCommentary(444, "Position: Wrong quote")}</a>
+      ${newCommentary(111, "Position: Wrong unrelated role")}<a href="https://www.linkedin.com/feed/update/urn:li:activity:111/">Like</a></div>`,
+    expectedError: "Teks posting LinkedIn belum berhasil dibaca" },
   { name: "LinkedIn share permalink excludes the old reshared deadline", url: "https://www.linkedin.com/posts/example-share-333-test/",
     title: "Posting | LinkedIn", body: `<main id="main-content"><article class="main-feed-activity-card"
       data-activity-urn="urn:li:activity:444" data-attributed-urn="urn:li:share:333">
@@ -52,10 +89,10 @@ const cases = [
   { name: "Unrelated feed cards cannot supply a post body", url: "https://www.linkedin.com/feed/update/urn:li:activity:444/",
     title: "Posting | LinkedIn", body: `<article class="feed-shared-update-v2" data-urn="urn:li:activity:111">
       <div class="update-components-text">Position: Wrong role 1</div></article><article class="feed-shared-update-v2" data-urn="urn:li:activity:222">
-      <div class="update-components-text">Position: Wrong role 2</div></article>`, expectedError: "Teks posting LinkedIn belum terbaca" },
+      <div class="update-components-text">Position: Wrong role 2</div></article>`, expectedError: "Teks posting LinkedIn belum berhasil dibaca" },
   { name: "A single card with the wrong post ID is also rejected", url: "https://www.linkedin.com/feed/update/urn:li:activity:444/",
     title: "Posting | LinkedIn", body: `<article class="feed-shared-update-v2" data-urn="urn:li:activity:111">
-      <div class="update-components-text">Position: Wrong role</div></article>`, expectedError: "Teks posting LinkedIn belum terbaca" },
+      <div class="update-components-text">Position: Wrong role</div></article>`, expectedError: "Teks posting LinkedIn belum berhasil dibaca" },
   { name: "Structured Glints extraction still works and strips HTML", url: "https://glints.com/jobs/example",
     title: "Glints", body: "<main>Data Analyst</main>", structured: { "@graph": [{ "@type": "JobPosting",
       title: "Data Analyst", hiringOrganization: { name: "Example Analytics" }, description: "<p>Analyze data.</p><p>Use SQL.</p>" }] },
@@ -63,6 +100,8 @@ const cases = [
   { name: "Platform-only Kalibrr metadata produces no job title", url: "https://jobseeker.kalibrr.com/c/example/jobs/123/example",
     title: "Kalibrr: Where Jobs Find You", body: "<nav>Kalibrr</nav>", expected: { nama_pekerjaan: "", perusahaan: "", deskripsi: "" } }
 ];
+// Optional local DOM snapshots; keep personal browser captures out of the repository.
+if (process.argv[2]) cases.push(...JSON.parse(fs.readFileSync(process.argv[2], "utf8")));
 const scriptLiteral = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
 const server = http.createServer((request, response) => {
   response.setHeader("Content-Type", "text/html; charset=utf-8");

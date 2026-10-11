@@ -10,6 +10,8 @@ Tidak perlu npm, framework, build, atau bundler. Pasang folder `extension/` mela
 2. Di `chrome://extensions`, klik **Reload / Muat ulang** pada Lamaran Tracker, lalu buka kembali popup lewat ikon di toolbar.
 3. Popup kini hanya berisi URL web app dan tombol Simpan. URL tujuan lama tetap tersimpan; pengaturan yang sudah tidak dipakai dibersihkan otomatis saat popup dibuka.
 
+Versi **1.3.1** memperbaiki pembacaan pada halaman Kalibrr dan posting LinkedIn saat login. Setelah memperbarui file, refresh tab lowongan juga sebelum mencoba menyimpan lagi.
+
 Jika spreadsheet belum memakai format terbaru dan tinggi baris otomatis, ganti kode Apps Script dengan isi `apps-script/Code.gs`, jalankan **setupSheet**, lalu pilih **Deploy > Manage deployments > Edit > New version > Deploy**. Data dan rumus yang terisi dipertahankan; header harus tetap sama. URL `/exec` tetap sama jika deployment yang sama diperbarui.
 
 ## File proyek
@@ -95,7 +97,7 @@ Biarkan folder ekstensi tetap berada di lokasi pemasangan. Jika dipindahkan, mua
 
 Ekstensi mengambil data otomatis dari JSON-LD JobPosting, microdata HTML JobPosting, field khusus situs, lalu metadata yang sesuai. Judul generik seperti **Kalibrr: Where Jobs Find You** dan **Posting | LinkedIn** tidak dipakai sebagai nama pekerjaan; nama platform juga tidak dipakai sebagai perusahaan. Jika nama pekerjaan tidak ditemukan, proses berhenti dengan pesan yang bisa ditindaklanjuti. Render halaman yang sedang berlangsung ditunggu maksimal enam detik sebelum hasil diperiksa.
 
-Posting LinkedIn dibaca dari teks posting utama atau JSON-LD SocialMediaPosting. Komentar, rekomendasi, dan teks posting lama yang dibagikan ulang tidak dicampur ke teks utama. Nama pekerjaan diambil dari label posisi atau daftar **Available Positions / Posisi tersedia**. Beberapa posisi digabung dengan titik koma dalam **satu baris**, tanpa memilih posisi secara otomatis. Perusahaan, lokasi, tipe kerja, gaji, dan deadline hanya diisi jika tertulis jelas dengan label atau pola kalimat yang didukung; nama akun penulis bukan nama perusahaan. Posting tanpa posisi yang jelas memakai label **Posting lowongan LinkedIn**, sementara teksnya tetap menjadi deskripsi.
+Posting LinkedIn dibaca dari teks posting utama atau JSON-LD SocialMediaPosting. Komentar, rekomendasi, dan teks posting lama yang dibagikan ulang tidak dicampur ke teks utama. Nama pekerjaan diambil dari label posisi, daftar **Available Positions / Posisi tersedia**, atau judul eksplisit seperti **We’re Hiring | External Audit – Senior Associate**. Beberapa posisi digabung dengan titik koma dalam **satu baris**, tanpa memilih posisi secara otomatis. Perusahaan, lokasi, tipe kerja, gaji, dan deadline hanya diisi jika tertulis jelas dengan label atau pola kalimat yang didukung; nama akun penulis bukan nama perusahaan. Kartu lowongan yang dilampirkan bisa merujuk posisi berbeda, sehingga tidak dipakai menggantikan isi posting. Posting tanpa posisi yang jelas memakai label **Posting lowongan LinkedIn**, sementara teksnya tetap menjadi deskripsi.
 
 Informasi yang tidak ditemukan dikosongkan. Deskripsi asli dibersihkan dan dipotong maksimal 1.500 karakter. Teks lowongan yang hanya berada di dalam gambar belum dapat dibaca otomatis. Jika teks posting tidak dapat diakses, ekstensi menampilkan langkah membuka posting lengkap/login dan tidak menambahkan baris kosong.
 
@@ -134,8 +136,8 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 | Chrome tidak bisa membaca halaman lowongan | Tutup popup, pilih tab lowongan, lalu buka kembali melalui ikon ekstensi. Setelah reload ekstensi, refresh halaman lowongan juga. Popup yang dibuka sebagai halaman biasa/Inspect dapat tidak memperoleh izin tab aktif. |
 | Halaman tidak dapat diambil | Gunakan halaman http/https biasa. Halaman `chrome://`, Web Store, PDF viewer, dan halaman lain yang dilindungi Chrome tidak bisa diinjeksi. |
 | Halaman kosong | Tunggu detail lowongan dimuat; untuk hasil pencarian, buka/pilih lowongan dahulu. |
-| Nama pekerjaan belum ditemukan / judul platform saja | Muat ulang ekstensi ke versi 1.3.0, refresh tab, dan pastikan halaman detail sudah tampil. Proses tidak menyimpan judul generik sebagai lowongan. |
-| Teks posting LinkedIn belum terbaca | Buka posting lengkap, klik See more / Lihat selengkapnya, dan login jika diperlukan. Teks dalam gambar belum didukung. |
+| Judul lowongan belum berhasil dibaca | Muat ulang ekstensi ke versi 1.3.1 dan refresh tab. Jika judul sudah tampil tetapi error berulang, pembaca belum cocok dengan varian halaman tersebut. |
+| Teks posting LinkedIn belum berhasil dibaca | Muat ulang ekstensi ke versi 1.3.1 dan refresh tab. Pastikan posting lengkap sudah tampil. Jika teks tetap terlihat tetapi error berulang, itu masalah pembaca halaman, bukan bukti bahwa teks tidak tersedia. |
 | Beberapa kolom kosong | Halaman mungkin tidak menyediakan JSON-LD/metadata atau selector belum cocok. Jangan anggap data kosong sebagai data yang berhasil ditemukan. |
 | Waktu tunggu/jaringan bermasalah | Periksa koneksi dan endpoint. Periksa spreadsheet sebelum mengulang karena request yang sudah diterima server bisa tetap selesai. |
 
@@ -148,14 +150,18 @@ Dropdown tetap divalidasi di semua baris, tetapi panah pada baris kosong di bawa
 
 Pada 11 Oktober 2026, struktur halaman publik [contoh Kalibrr](https://jobseeker.kalibrr.com/c/pt-binajasa-sumber-sarana/jobs/271601/account-support-coordinator-bandung) dan [contoh posting LinkedIn](https://www.linkedin.com/posts/nadiya-jvstnad_hiring-hiring-healthcarejobs-share-7514606290451607552-jP1-/) diperiksa langsung. Kalibrr memakai microdata HTML untuk judul, organisasi, lokasi, dan deadline, serta teks gaji/deskripsi yang tampil. Posting publik LinkedIn memakai kartu posting yang sesuai ID share/activity dan teks komentar utama, dengan JSON-LD SocialMediaPosting sebagai cadangan. Pemeriksaan dua contoh ini tidak menjamin semua tampilan/login situs.
 
-Pengujian DOM lokal juga mencakup contoh kartu LinkedIn saat login, pemuatan SPA yang terlambat, beberapa kartu feed, ID posting berbeda, JSON-LD bersarang, dan teks repost yang berbeda deadline. Selector varian login masih memerlukan pemeriksaan langsung di akun pengguna. Kandidat lain berada pada objek `SITE_SELECTORS` di `extension/content.js`:
+Varian saat login juga diperiksa langsung pada tab Chrome pengguna. Aplikasi `jobseeker.kalibrr.com` memakai elemen `kb-job-page`, judul `h1`, komponen `kb-salary-range`, dan bagian **Job Description** tanpa JSON-LD atau scope JobPosting. Perusahaan, lokasi, gaji, dan deskripsi dibaca dari bagian detail yang sama. Deadline seperti **23 Oct** tanpa tahun lengkap tetap dikosongkan.
+
+LinkedIn versi login yang diperiksa memakai kartu `componentkey="update-card-focus…"`, ID `translatable-commentary-…`, dan `data-testid="expandable-text-box"`, dengan nama kelas yang dihasilkan otomatis. Pembaca memakai atribut tersebut serta tautan activity/share, bukan nama kelas acak. Posting lama di dalam tautan kartu kutipan dan teks komentar dikecualikan. Kode produksi juga diuji pada cuplikan DOM kedua tab; cuplikan konten pengguna tidak disertakan dalam repositori.
+
+Pengujian DOM lokal mereproduksi atribut yang ditemukan di Chrome dan mencakup pemuatan SPA yang terlambat, beberapa kartu feed, ID posting berbeda, JSON-LD bersarang, teks komentar, serta repost dengan deadline berbeda. Tampilan situs lain yang belum diperiksa tetap dapat berubah. Kandidat lain berada pada objek `SITE_SELECTORS` di `extension/content.js`:
 
 | Situs | Selector/field yang belum terverifikasi |
 | --- | --- |
 | LinkedIn Jobs | Container/panel detail kanan, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 | JobStreet | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 | Glints | Container detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
-| Kalibrr | Selector lama/varian tanpa microdata dan field tipe kerja yang tidak eksplisit |
+| Kalibrr | Varian selain halaman publik/microdata dan aplikasi kb-job-page, serta field tipe kerja yang tidak eksplisit |
 | Indeed | Container/panel detail, judul, perusahaan, lokasi, tipe kerja, gaji, deadline, deskripsi |
 
 Selector yang tidak ditemukan mengembalikan `null`. JSON-LD, microdata pada container detail, dan metadata tetap dapat dipakai jika field khusus situs tidak ditemukan.

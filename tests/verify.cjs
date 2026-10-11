@@ -129,6 +129,17 @@ test("only explicit valid dates with an unambiguous month and year are accepted"
     assert.equal(env.ctx.normalizeSourceDeadline(text), "");
 });
 
+test("hiring headline supplies the explicit role and separates a glued location sentence", () => {
+  const env = background();
+  const fields = env.ctx.extractPostFields("📢 We’re Hiring | External Audit – Senior Associate / Assistant Manager\n" +
+    "Example Audit Indonesia is looking for talented professionals!\n" +
+    "📍 Location: IndonesiaIf you’re ready to join us, apply now!");
+  assert.equal(fields.nama_pekerjaan, "External Audit – Senior Associate / Assistant Manager");
+  assert.equal(fields.perusahaan, "Example Audit Indonesia");
+  assert.equal(fields.lokasi, "Indonesia");
+  assert.equal(fields.deadline, "");
+});
+
 test("generic platform pages and unreadable LinkedIn posts cannot create junk rows", async () => {
   for (const fixture of [
     { ...page, hostname: "jobseeker.kalibrr.com", title: "Kalibrr: Where Jobs Find You", siteFields: {},
@@ -138,7 +149,7 @@ test("generic platform pages and unreadable LinkedIn posts cannot create junk ro
   ]) {
     const env = background();
     env.ctx.chrome.scripting.executeScript = async () => [{ result: fixture }];
-    await assert.rejects(() => env.ctx.saveJob(1), /belum ditemukan|belum terbaca/);
+    await assert.rejects(() => env.ctx.saveJob(1), /belum berhasil dibaca|belum terbaca/);
     assert.equal(env.calls.length, 0);
   }
 });
@@ -504,7 +515,7 @@ test("terminal status freezes waiting days and reopening restores the formula", 
 test("manifest and popup expose only the spreadsheet save flow", () => {
   const manifest = JSON.parse(source("extension/manifest.json"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "1.3.0");
+  assert.equal(manifest.version, "1.3.1");
   assert.equal(manifest.content_scripts, undefined);
   assert.equal(manifest.optional_host_permissions, undefined);
   assert.deepEqual(manifest.permissions, ["activeTab", "scripting", "storage"]);
